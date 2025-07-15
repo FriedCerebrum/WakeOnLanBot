@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 import paramiko
 import subprocess
+import traceback
 
 # --- Конфигурация ---
 logging.basicConfig(
@@ -67,30 +68,41 @@ def wake_on_lan(update: Update, context: CallbackContext):
     try:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
         private_key = paramiko.Ed25519Key.from_private_key_file(ROUTER_SSH_KEY_PATH)
-        
         client.connect(
             ROUTER_SSH_HOST,
             port=ROUTER_SSH_PORT,
             username=ROUTER_SSH_USER,
             pkey=private_key
         )
-        
         # Команда etherwake для OpenWrt
         stdin, stdout, stderr = client.exec_command(f"etherwake -i br-lan {SERVER_MAC}")
-        error = stderr.read().decode(errors="replace")
-        output = stdout.read().decode(errors="replace")
+        raw_stdout = stdout.read()
+        raw_stderr = stderr.read()
+        try:
+            output = raw_stdout.decode("utf-8")
+        except Exception as e:
+            output = f"[decode error: {e}] raw: {raw_stdout}"
+        try:
+            error = raw_stderr.decode("utf-8")
+        except Exception as e:
+            error = f"[decode error: {e}] raw: {raw_stderr}"
+        logger.info(f"WOL output: {output}")
+        logger.info(f"WOL error: {error}")
         client.close()
-        
-        if error:
+        if error.strip():
             update.message.reply_text(f"❌ Ошибка при выполнении команды на роутере: {error}")
         else:
             update.message.reply_text("🔌 **Magic packet отправлен!** Сервер должен скоро запуститься.")
-            
     except Exception as e:
-        logger.error(f"WOL Error: {e}")
-        update.message.reply_text(f"⚠️ **Ошибка подключения к роутеру:**\n`{str(e)}`\n\nПроверьте, активен ли SSH-туннель от роутера.", parse_mode='Markdown')
+        tb = traceback.format_exc()
+        logger.error(f"WOL Error: {e}\n{tb}")
+        # Экранируем обратные кавычки для Markdown
+        tb_md = tb.replace('`', "'")
+        update.message.reply_text(
+            f"⚠️ **Ошибка подключения к роутеру:**\n`{str(e)}`\n\nТрейсбек:\n```\n{tb_md}\n```\n\nПроверьте, активен ли SSH-туннель от роутера.",
+            parse_mode='Markdown'
+        )
 
 @restricted
 def shutdown_server(update: Update, context: CallbackContext):
