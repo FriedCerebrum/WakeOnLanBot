@@ -5,6 +5,7 @@ services:
     build: .
     container_name: tg-server-manager
     restart: unless-stopped
+    network_mode: "host"
     environment:
       - BOT_TOKEN
       - ALLOWED_USERS
