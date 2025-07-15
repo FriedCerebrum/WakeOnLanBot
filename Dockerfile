@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Копируем файл с зависимостями Python и устанавливаем их
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN apt-get update && apt-get install -y openssh-client && rm -rf /var/lib/apt/lists/*
 
 # Копируем скрипт бота и ключи (ключи должны быть добавлены в папку keys/ до сборки)
 COPY bot.py .
