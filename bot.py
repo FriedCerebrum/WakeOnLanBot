@@ -24,7 +24,7 @@ SERVER_MAC = os.getenv("SERVER_MAC")
 ROUTER_SSH_HOST = "localhost"
 ROUTER_SSH_PORT = int(os.getenv("ROUTER_SSH_PORT", "2223"))
 ROUTER_SSH_USER = os.getenv("ROUTER_SSH_USER", "root")
-ROUTER_SSH_KEY_PATH = "/app/keys/id_router_vps"  # Ключ для роутера (добавьте в keys/)
+ROUTER_SSH_KEY_PATH = "/app/keys/id_router_vps_rsa_legacy"  # Ключ для роутера (RSA legacy)
 
 # Для домашнего сервера (Shutdown, Status)
 SERVER_SSH_HOST = "localhost"
@@ -68,7 +68,7 @@ def wake_on_lan(update: Update, context: CallbackContext):
     try:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        private_key = paramiko.Ed25519Key.from_private_key_file(ROUTER_SSH_KEY_PATH)
+        private_key = paramiko.RSAKey.from_private_key_file(ROUTER_SSH_KEY_PATH)
         client.connect(
             ROUTER_SSH_HOST,
             port=ROUTER_SSH_PORT,
