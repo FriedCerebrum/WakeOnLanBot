@@ -79,7 +79,8 @@ def wake_on_lan(update: Update, context: CallbackContext):
         
         # Команда etherwake для OpenWrt
         stdin, stdout, stderr = client.exec_command(f"ether-wake -i br-lan {SERVER_MAC}")
-        error = stderr.read().decode()
+        error = stderr.read().decode(errors="replace")
+        output = stdout.read().decode(errors="replace")
         client.close()
         
         if error:
