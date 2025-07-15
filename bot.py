@@ -1,7 +1,7 @@
 import logging
 import os
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
 import paramiko
 import subprocess
 import traceback
@@ -51,20 +51,69 @@ def restricted(func):
     return wrapped
 
 # --- Команды бота ---
+
+def main_menu_keyboard():
+    keyboard = [
+        [
+            InlineKeyboardButton("\U0001F50C Включить", callback_data='wol'),
+            InlineKeyboardButton("\U0001F534 Выключить", callback_data='shutdown_confirm'),
+        ],
+        [
+            InlineKeyboardButton("\U0001F7E2 Статус", callback_data='status')
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 @restricted
 def start(update: Update, context: CallbackContext):
     update.message.reply_text(
-        "🚀 **Серверный менеджер**\n\n"
-        "Доступные команды:\n"
-        "/wol - Включить домашний сервер\n"
-        "/shutdown - Выключить домашний сервер\n"
-        "/status - Проверить состояние сервера"
-    , parse_mode='Markdown')
+        "\U0001F680 **Серверный менеджер**\n\nВыберите действие:",
+        parse_mode='Markdown',
+        reply_markup=main_menu_keyboard()
+    )
 
 @restricted
-def wake_on_lan(update: Update, context: CallbackContext):
-    """Отправка Wake-on-LAN через SSH-туннель к роутеру"""
-    update.message.reply_text("⏳ Отправляю команду на включение...")
+def button_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if user_id not in ALLOWED_USERS:
+        query.answer()
+        query.edit_message_text("\u274C Доступ запрещен!")
+        return
+    data = query.data
+    if data == 'wol':
+        query.answer()
+        wake_on_lan_callback(query, context)
+    elif data == 'shutdown_confirm':
+        query.answer()
+        confirm_keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("\u2705 Да, выключить", callback_data='shutdown_yes'),
+                InlineKeyboardButton("\u274C Нет", callback_data='cancel')
+            ]
+        ])
+        query.edit_message_text(
+            "\u26A0\ufe0f Вы уверены, что хотите выключить сервер?",
+            reply_markup=confirm_keyboard
+        )
+    elif data == 'shutdown_yes':
+        query.answer()
+        shutdown_server_callback(query, context)
+    elif data == 'cancel':
+        query.answer("Отменено")
+        query.edit_message_text(
+            "\u274C Операция отменена.",
+            reply_markup=main_menu_keyboard()
+        )
+    elif data == 'status':
+        query.answer()
+        server_status_callback(query, context)
+    else:
+        query.answer("Неизвестная команда")
+
+# --- Callback versions of commands ---
+def wake_on_lan_callback(query, context):
+    query.edit_message_text("\u23F3 Отправляю команду на включение...")
     try:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -75,7 +124,6 @@ def wake_on_lan(update: Update, context: CallbackContext):
             username=ROUTER_SSH_USER,
             pkey=private_key
         )
-        # Команда etherwake для OpenWrt
         stdin, stdout, stderr = client.exec_command(f"etherwake -i br-lan {SERVER_MAC}")
         raw_stdout = stdout.read()
         raw_stderr = stderr.read()
@@ -91,67 +139,66 @@ def wake_on_lan(update: Update, context: CallbackContext):
         logger.info(f"WOL error: {error}")
         client.close()
         if error.strip():
-            update.message.reply_text(f"❌ Ошибка при выполнении команды на роутере: {error}")
+            query.edit_message_text(f"\u274C Ошибка при выполнении команды на роутере: {error}", reply_markup=main_menu_keyboard())
         else:
-            update.message.reply_text("🔌 **Magic packet отправлен!** Сервер должен скоро запуститься.")
+            query.edit_message_text("\U0001F50C **Magic packet отправлен!** Сервер должен скоро запуститься.", parse_mode='Markdown', reply_markup=main_menu_keyboard())
     except Exception as e:
         tb = traceback.format_exc()
         logger.error(f"WOL Error: {e}\n{tb}")
-        # Экранируем обратные кавычки для Markdown
         tb_md = tb.replace('`', "'")
-        update.message.reply_text(
-            f"⚠️ **Ошибка подключения к роутеру:**\n`{str(e)}`\n\nТрейсбек:\n```\n{tb_md}\n```\n\nПроверьте, активен ли SSH-туннель от роутера.",
-            parse_mode='Markdown'
+        query.edit_message_text(
+            f"\u26A0\ufe0f **Ошибка подключения к роутеру:**\n`{str(e)}`\n\nТрейсбек:\n```\n{tb_md}\n```\n\nПроверьте, активен ли SSH-туннель от роутера.",
+            parse_mode='Markdown',
+            reply_markup=main_menu_keyboard()
         )
 
-@restricted
-def shutdown_server(update: Update, context: CallbackContext):
-    """Выключение сервера через SSH-туннель к домашнему серверу"""
-    update.message.reply_text("⏳ Отправляю команду на выключение...")
+def shutdown_server_callback(query, context):
+    query.edit_message_text("\u23F3 Отправляю команду на выключение...")
     try:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
         private_key = paramiko.RSAKey.from_private_key_file(SERVER_SSH_KEY_PATH)
-
         client.connect(
             SERVER_SSH_HOST,
             port=SERVER_SSH_PORT,
             username=SERVER_SSH_USER,
             pkey=private_key
         )
-        
-        # Важно: для выполнения sudo без пароля настройте /etc/sudoers на домашнем сервере
         stdin, stdout, stderr = client.exec_command("sudo /sbin/shutdown -h now")
         error = stderr.read().decode()
         client.close()
-
         if error:
-            update.message.reply_text(f"❌ Ошибка при выполнении команды на сервере: {error}")
+            query.edit_message_text(f"\u274C Ошибка при выполнении команды на сервере: {error}", reply_markup=main_menu_keyboard())
         else:
-            update.message.reply_text("🛑 **Команда выключения отправлена!** Сервер завершает работу.")
-
+            query.edit_message_text("\U0001F534 **Команда выключения отправлена!** Сервер завершает работу.", parse_mode='Markdown', reply_markup=main_menu_keyboard())
     except Exception as e:
         logger.error(f"Shutdown Error: {e}")
-        update.message.reply_text(f"⚠️ **Ошибка подключения к домашнему серверу:**\n`{str(e)}`\n\nСервер уже выключен или туннель неактивен.", parse_mode='Markdown')
+        query.edit_message_text(f"\u26A0\ufe0f **Ошибка подключения к домашнему серверу:**\n`{str(e)}`\n\nСервер уже выключен или туннель неактивен.", parse_mode='Markdown', reply_markup=main_menu_keyboard())
 
-
-@restricted
-def server_status(update: Update, context: CallbackContext):
-    """Проверка доступности порта сервера через туннель"""
+def server_status_callback(query, context):
     try:
         result = subprocess.run(
             ["nc", "-z", "-w", "3", SERVER_SSH_HOST, str(SERVER_SSH_PORT)],
             capture_output=True, text=True
         )
         if result.returncode == 0:
-            update.message.reply_text("🟢 **Сервер онлайн** (SSH-туннель активен).")
+            query.edit_message_text("\U0001F7E2 **Сервер онлайн** (SSH-туннель активен).", parse_mode='Markdown', reply_markup=main_menu_keyboard())
         else:
-            update.message.reply_text("🔴 **Сервер оффлайн** (SSH-туннель не отвечает).")
+            query.edit_message_text("\U0001F534 **Сервер оффлайн** (SSH-туннель не отвечает).", parse_mode='Markdown', reply_markup=main_menu_keyboard())
     except Exception as e:
         logger.error(f"Status Check Error: {e}")
-        update.message.reply_text(f"⚠️ Ошибка при проверке статуса: {str(e)}")
+        query.edit_message_text(f"\u26A0\ufe0f Ошибка при проверке статуса: {str(e)}", reply_markup=main_menu_keyboard())
 
+# Отключаем старые команды, чтобы не было дублирования
+#@restricted
+#def wake_on_lan(update: Update, context: CallbackContext):
+#    ...
+#@restricted
+#def shutdown_server(update: Update, context: CallbackContext):
+#    ...
+#@restricted
+#def server_status(update: Update, context: CallbackContext):
+#    ...
 
 def main():
     """Запуск бота"""
@@ -170,9 +217,10 @@ def main():
         logger.error("Dispatcher не инициализирован!")
         return
     dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("wol", wake_on_lan))
-    dispatcher.add_handler(CommandHandler("shutdown", shutdown_server))
-    dispatcher.add_handler(CommandHandler("status", server_status))
+    dispatcher.add_handler(CallbackQueryHandler(button_handler))
+    # dispatcher.add_handler(CommandHandler("wol", wake_on_lan))
+    # dispatcher.add_handler(CommandHandler("shutdown", shutdown_server))
+    # dispatcher.add_handler(CommandHandler("status", server_status))
     updater.start_polling()
     logger.info("Бот запущен...")
     updater.idle()
