@@ -6,11 +6,10 @@ services:
     container_name: tg-server-manager
     restart: unless-stopped
     environment:
-      - BOT_TOKEN=your_bot_token_here
-      - ALLOWED_USERS=758356348  # <-- Только числовые ID через запятую
-      - SERVER_MAC=00:9d:d8:aa:64:5a
-      # Ключи должны быть добавлены в папку keys/ (см. Dockerfile)
-      - ROUTER_SSH_PORT=2223
-      - ROUTER_SSH_USER=root
-      - SERVER_SSH_PORT=2222
-      - SERVER_SSH_USER=friedcerebrum
+      - BOT_TOKEN
+      - ALLOWED_USERS
+      - SERVER_MAC
+      - ROUTER_SSH_PORT
+      - ROUTER_SSH_USER
+      - SERVER_SSH_PORT
+      - SERVER_SSH_USER
