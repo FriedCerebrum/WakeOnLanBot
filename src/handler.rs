@@ -23,7 +23,7 @@ pub async fn run(bot: Bot, cfg: Arc<Config>) {
 async fn handle_update(bot: Bot, upd: Update, cfg: Arc<Config>) -> ResponseResult<()> {
     match upd.kind {
         teloxide::types::UpdateKind::Message(msg) => {
-            let user_id = msg.from.as_ref().map(|u| u.id.0);
+            let user_id = msg.from().as_ref().map(|u| u.id.0);
             if !crate::is_allowed(&cfg, user_id) {
                 return Ok(());
             }

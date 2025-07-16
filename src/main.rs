@@ -11,6 +11,9 @@ use std::sync::Arc;
 
 mod handler;
 
+// #[cfg(test)]
+// mod tests;
+
 #[tokio::main]
 async fn main() {
     // МАКСИМАЛЬНО РАННЯЯ ДИАГНОСТИКА
@@ -215,7 +218,7 @@ fn main_keyboard() -> InlineKeyboardMarkup {
 
 async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
     if let Some(msg) = &q.message {
-        bot.edit_message_text(msg.chat().id, msg.id(), "⏳ Отправляю команду на включение...")
+        bot.edit_message_text(msg.chat.id, msg.id, "⏳ Отправляю команду на включение...")
             .await?;
     }
 
@@ -227,9 +230,9 @@ async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()>
     {
         Ok(_) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(
-                    msg.chat().id,
-                    msg.id(),
+                        bot.edit_message_text(
+            msg.chat.id,
+            msg.id,
                     "🔌 Magic packet отправлен!\n\nСервер должен запуститься в течение 30 секунд.",
                 )
                 .await?;
@@ -237,7 +240,7 @@ async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()>
         }
         Err(e) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat().id, msg.id(), format!("❌ Ошибка: {}", e)).await?;
+                bot.edit_message_text(msg.chat.id, msg.id, format!("❌ Ошибка: {}", e)).await?;
             }
         }
     }
@@ -277,7 +280,7 @@ async fn ask_shutdown_confirm(bot: &Bot, q: &CallbackQuery) -> Result<()> {
             InlineKeyboardButton::callback("✅ Да, выключить", "shutdown_yes"),
             InlineKeyboardButton::callback("❌ Отмена", "cancel"),
         ]]);
-        bot.edit_message_text(msg.chat().id, msg.id(), "⚠️ Подтверждение\n\nВы уверены, что хотите выключить сервер?")
+        bot.edit_message_text(msg.chat.id, msg.id, "⚠️ Подтверждение\n\nВы уверены, что хотите выключить сервер?")
             .parse_mode(ParseMode::MarkdownV2)
             .reply_markup(kb)
             .await?;
@@ -287,7 +290,7 @@ async fn ask_shutdown_confirm(bot: &Bot, q: &CallbackQuery) -> Result<()> {
 
 async fn handle_shutdown(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
     if let Some(msg) = &q.message {
-        bot.edit_message_text(msg.chat().id, msg.id(), "⏳ Отправляю команду на выключение...")
+                    bot.edit_message_text(msg.chat.id, msg.id, "⏳ Отправляю команду на выключение...")
             .await?;
     }
 
@@ -299,12 +302,12 @@ async fn handle_shutdown(bot: &Bot, q: &CallbackQuery, config: &Config) -> Resul
     {
         Ok(_) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat().id, msg.id(), "🔴 Команда выключения отправлена!").await?;
+                bot.edit_message_text(msg.chat.id, msg.id, "🔴 Команда выключения отправлена!").await?;
             }
         }
         Err(e) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat().id, msg.id(), format!("❌ Ошибка: {}", e)).await?;
+                bot.edit_message_text(msg.chat.id, msg.id, format!("❌ Ошибка: {}", e)).await?;
             }
         }
     }
@@ -339,24 +342,24 @@ fn send_shutdown(config: &Config) -> Result<()> {
 
 async fn handle_status(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
     if let Some(msg) = &q.message {
-        bot.edit_message_text(msg.chat().id, msg.id(), "⏳ Проверяю статус сервера...")
+                    bot.edit_message_text(msg.chat.id, msg.id, "⏳ Проверяю статус сервера...")
             .await?;
     }
 
     match tokio::time::timeout(config.nc_timeout, check_status(config.clone())).await {
         Ok(Ok(info)) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat().id, msg.id(), info).await?;
+                bot.edit_message_text(msg.chat.id, msg.id, info).await?;
             }
         }
         Ok(Err(e)) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat().id, msg.id(), format!("❌ Ошибка: {}", e)).await?;
+                bot.edit_message_text(msg.chat.id, msg.id, format!("❌ Ошибка: {}", e)).await?;
             }
         }
         Err(_) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat().id, msg.id(), "⏱️ Таймаут!").await?;
+                bot.edit_message_text(msg.chat.id, msg.id, "⏱️ Таймаут!").await?;
             }
         }
     }
@@ -402,7 +405,7 @@ async fn check_status(config: Config) -> Result<String> {
 
 async fn cancel(bot: &Bot, q: &CallbackQuery) -> Result<()> {
     if let Some(msg) = &q.message {
-        bot.edit_message_text(msg.chat().id, msg.id(), "❌ Операция отменена")
+        bot.edit_message_text(msg.chat.id, msg.id, "❌ Операция отменена")
             .reply_markup(main_keyboard())
             .await?;
     }
