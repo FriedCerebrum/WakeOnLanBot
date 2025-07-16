@@ -26,12 +26,15 @@ async fn run() -> Result<()> {
 
     // Читаем конфигурацию из переменных окружения
     let config = Config::from_env()?;
+    log::info!("Конфигурация успешно загружена!");
 
     // Создаем экземпляр бота
     let bot = Bot::new(config.bot_token.clone());
+    log::info!("Экземпляр бота создан");
 
     let cfg = Arc::new(config);
 
+    log::info!("Запускаем обработчик событий...");
     handler::run(bot.clone(), cfg.clone()).await;
 
     Ok(())
@@ -59,17 +62,28 @@ struct Config {
 
 impl Config {
     fn from_env() -> Result<Self> {
+        log::info!("Начинаю чтение конфигурации из переменных окружения...");
+        
         let bot_token = env::var("BOT_TOKEN").context("BOT_TOKEN пуст")?;
-        let allowed_users = env::var("ALLOWED_USERS")
-            .unwrap_or_default()
+        log::info!("BOT_TOKEN прочитан успешно");
+        
+        let allowed_users_str = env::var("ALLOWED_USERS").unwrap_or_default();
+        log::info!("ALLOWED_USERS строка: '{}'", allowed_users_str);
+        
+        let allowed_users = allowed_users_str
             .split(',')
             .filter_map(|s| s.trim().parse::<i64>().ok())
             .collect::<Vec<_>>();
+        log::info!("ALLOWED_USERS распарсены: {:?}", allowed_users);
+        
         let server_mac = env::var("SERVER_MAC").context("SERVER_MAC пуст")?;
+        log::info!("SERVER_MAC прочитан: '{}'", server_mac);
 
         if allowed_users.is_empty() {
             anyhow::bail!("ALLOWED_USERS пуст");
         }
+
+        log::info!("Все обязательные переменные прочитаны успешно");
 
         Ok(Self {
             bot_token,

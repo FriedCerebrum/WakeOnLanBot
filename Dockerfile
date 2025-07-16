@@ -29,6 +29,9 @@ COPY --from=builder /app/target/release/wakeonlan_bot /usr/local/bin/wakeonlan_b
 COPY keys /app/keys/
 RUN chmod 600 /app/keys/*
 
-ENV RUST_LOG=info
+# Проверяем что ключи на месте
+RUN echo "=== Проверка SSH ключей ===" && ls -la /app/keys/ && echo "=== Конец проверки ==="
+
+ENV RUST_LOG=debug
 
 CMD ["wakeonlan_bot"] 
