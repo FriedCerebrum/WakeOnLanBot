@@ -19,7 +19,7 @@ async fn main() {
     // МАКСИМАЛЬНО РАННЯЯ ДИАГНОСТИКА
     println!("=== СТАРТ ПРИЛОЖЕНИЯ ===");
     println!("Rust приложение запущено успешно!");
-    println!("Версия Rust: {}", env!("RUSTC_VERSION", "неизвестна"));
+    println!("Версия Rust: {}", env!("CARGO_PKG_RUST_VERSION", "неизвестна"));
     println!("Пакет: {} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
     println!("Teloxide версия: {}", option_env!("CARGO_PKG_VERSION_teloxide").unwrap_or("неизвестна"));
     
@@ -72,7 +72,7 @@ async fn run() -> Result<()> {
         Ok(me) => {
             println!("✅ Связь с Telegram API работает!");
             println!("   Имя бота: {}", me.first_name);
-            println!("   Username: @{}", me.username.unwrap_or_else(|| "НЕТ".to_string()));
+            println!("   Username: @{}", me.username.as_ref().map(|s| s.as_str()).unwrap_or("НЕТ"));
             log::info!("Telegram API отвечает, бот: {}", me.first_name);
         },
         Err(e) => {
