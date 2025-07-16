@@ -27,11 +27,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=builder /app/target/release/wakeonlan_bot /usr/local/bin/wakeonlan_bot
 COPY keys /app/keys/
-RUN chmod 600 /app/keys/*
+COPY diagnostic_wrapper.sh /app/diagnostic_wrapper.sh
+RUN chmod 600 /app/keys/* && chmod +x /app/diagnostic_wrapper.sh
 
 # Проверяем что ключи на месте
 RUN echo "=== Проверка SSH ключей ===" && ls -la /app/keys/ && echo "=== Конец проверки ==="
 
 ENV RUST_LOG=debug
 
-CMD ["wakeonlan_bot"] 
+CMD ["/app/diagnostic_wrapper.sh"] 

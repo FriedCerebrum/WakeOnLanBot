@@ -13,6 +13,28 @@ mod handler;
 
 #[tokio::main]
 async fn main() {
+    // МАКСИМАЛЬНО РАННЯЯ ДИАГНОСТИКА
+    println!("=== СТАРТ ПРИЛОЖЕНИЯ ===");
+    println!("Rust приложение запущено успешно!");
+    
+    // Проверяем критические переменные окружения ДО инициализации логгера
+    println!("=== ПРОВЕРКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ===");
+    match env::var("BOT_TOKEN") {
+        Ok(token) => println!("BOT_TOKEN: найден (длина: {})", token.len()),
+        Err(_) => println!("BOT_TOKEN: НЕ НАЙДЕН!"),
+    }
+    
+    match env::var("ALLOWED_USERS") {
+        Ok(users) => println!("ALLOWED_USERS: '{}'", users),
+        Err(_) => println!("ALLOWED_USERS: НЕ НАЙДЕН!"),
+    }
+    
+    match env::var("SERVER_MAC") {
+        Ok(mac) => println!("SERVER_MAC: '{}'", mac),
+        Err(_) => println!("SERVER_MAC: НЕ НАЙДЕН!"),
+    }
+    println!("=== КОНЕЦ ПРОВЕРКИ ПЕРЕМЕННЫХ ===");
+    
     if let Err(e) = run().await {
         eprintln!("Ошибка запуска: {:#}", e);
         std::process::exit(1);
@@ -20,20 +42,27 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
+    println!("=== ИНИЦИАЛИЗАЦИЯ ЛОГГЕРА ===");
     // Инициализируем логирование
     pretty_env_logger::init();
+    println!("Логгер инициализирован успешно");
     log::info!("Запуск WakeOnLanBot...");
 
+    println!("=== ЧТЕНИЕ КОНФИГУРАЦИИ ===");
     // Читаем конфигурацию из переменных окружения
     let config = Config::from_env()?;
+    println!("Конфигурация загружена успешно!");
     log::info!("Конфигурация успешно загружена!");
 
+    println!("=== СОЗДАНИЕ БОТА ===");
     // Создаем экземпляр бота
     let bot = Bot::new(config.bot_token.clone());
+    println!("Экземпляр бота создан успешно");
     log::info!("Экземпляр бота создан");
 
     let cfg = Arc::new(config);
 
+    println!("=== ЗАПУСК ОБРАБОТЧИКА ===");
     log::info!("Запускаем обработчик событий...");
     handler::run(bot.clone(), cfg.clone()).await;
 
@@ -62,27 +91,53 @@ struct Config {
 
 impl Config {
     fn from_env() -> Result<Self> {
+        println!("=== ДЕТАЛЬНОЕ ЧТЕНИЕ КОНФИГУРАЦИИ ===");
         log::info!("Начинаю чтение конфигурации из переменных окружения...");
         
-        let bot_token = env::var("BOT_TOKEN").context("BOT_TOKEN пуст")?;
+        println!("Читаю BOT_TOKEN...");
+        let bot_token = match env::var("BOT_TOKEN") {
+            Ok(token) => {
+                println!("BOT_TOKEN прочитан успешно (длина: {})", token.len());
+                token
+            },
+            Err(e) => {
+                println!("ОШИБКА: BOT_TOKEN не найден: {}", e);
+                return Err(anyhow::anyhow!("BOT_TOKEN пуст"));
+            }
+        };
         log::info!("BOT_TOKEN прочитан успешно");
         
+        println!("Читаю ALLOWED_USERS...");
         let allowed_users_str = env::var("ALLOWED_USERS").unwrap_or_default();
+        println!("ALLOWED_USERS строка: '{}'", allowed_users_str);
         log::info!("ALLOWED_USERS строка: '{}'", allowed_users_str);
         
         let allowed_users = allowed_users_str
             .split(',')
             .filter_map(|s| s.trim().parse::<i64>().ok())
             .collect::<Vec<_>>();
+        println!("ALLOWED_USERS распарсены: {:?}", allowed_users);
         log::info!("ALLOWED_USERS распарсены: {:?}", allowed_users);
         
-        let server_mac = env::var("SERVER_MAC").context("SERVER_MAC пуст")?;
+        println!("Читаю SERVER_MAC...");
+        let server_mac = match env::var("SERVER_MAC") {
+            Ok(mac) => {
+                println!("SERVER_MAC прочитан: '{}'", mac);
+                mac
+            },
+            Err(e) => {
+                println!("ОШИБКА: SERVER_MAC не найден: {}", e);
+                return Err(anyhow::anyhow!("SERVER_MAC пуст"));
+            }
+        };
         log::info!("SERVER_MAC прочитан: '{}'", server_mac);
 
         if allowed_users.is_empty() {
+            println!("ОШИБКА: ALLOWED_USERS список пуст после парсинга!");
             anyhow::bail!("ALLOWED_USERS пуст");
         }
 
+        println!("Все обязательные переменные прочитаны успешно");
         log::info!("Все обязательные переменные прочитаны успешно");
 
         Ok(Self {
