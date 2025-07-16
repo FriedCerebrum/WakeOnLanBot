@@ -1,25 +1,29 @@
-# Используем легковесный образ Python
-FROM python:3.9-slim
-
-# Устанавливаем рабочую директорию
+# === Сборочный этап ===
+FROM rust:1.71-slim AS builder
 WORKDIR /app
 
-# Устанавливаем зависимости системы
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    netcat-openbsd \
-    && rm -rf /var/lib/apt/lists/*
+# Копируем манифест и зависимости
+COPY Cargo.toml ./
+# Опционально, ускоряем кэш
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN cargo build --release --locked
 
-# Копируем файл с зависимостями Python и устанавливаем их
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN apt-get update && apt-get install -y openssh-client && rm -rf /var/lib/apt/lists/*
-
-# Копируем скрипт бота и ключи (ключи должны быть добавлены в папку keys/ до сборки)
-COPY bot.py .
+# Копируем исходники проекта
+COPY src ./src
 COPY keys /app/keys/
+RUN cargo build --release --locked
 
-# Задаем права на ключи
+# === Финальный образ ===
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates libssl3 libssh2-1 openssh-client && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder /app/target/release/wakeonlan_bot /usr/local/bin/wakeonlan_bot
+COPY keys /app/keys/
 RUN chmod 600 /app/keys/*
 
-# Запускаем бота
-CMD ["python", "bot.py"]
+ENV RUST_LOG=info
+
+CMD ["wakeonlan_bot"] 
