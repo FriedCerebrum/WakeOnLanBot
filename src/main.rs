@@ -3,12 +3,12 @@ use std::{env, net::TcpStream, path::Path, time::Duration, io::Read};
 use anyhow::{Result, Context};
 use ssh2::Session;
 use teloxide::{
-    dispatching::{UpdateFilterExt, HandlerExt},
+    dispatching::{HandlerExt, UpdateFilterExt, HandlerResult},
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
     utils::command::BotCommands,
-    respond,
 };
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() {
@@ -27,48 +27,25 @@ async fn run() -> Result<()> {
     let config = Config::from_env()?;
 
     // Создаем экземпляр бота
-    let bot = Bot::new(config.bot_token.clone()).auto_send();
+    let bot = Bot::new(config.bot_token.clone());
+
+    let cfg = Arc::new(config);
 
     let handler = dptree::entry()
-        .filter(move |upd: Update| is_allowed(&config, &upd))
+        .filter(|upd: Update, cfg: Arc<Config>| is_allowed(&cfg, &upd))
         .branch(
             Update::filter_message()
                 .filter_command::<Command>()
-                .endpoint(move |bot: AutoSend<Bot>, msg: Message, cmd: Command| {
-                    let config = config.clone();
-                    async move {
-                        match cmd {
-                            Command::Start => {
-                                if let Err(e) = send_main_menu(&bot, &msg, &config).await {
-                                    log::error!("Ошибка send_main_menu: {e}");
-                                }
-                            }
-                        }
-                        respond(())
-                    }
-                }),
+                .endpoint(command_handler),
         )
-        .branch(Update::filter_callback_query().endpoint(move |bot: AutoSend<Bot>, q: CallbackQuery| {
-            let config = config.clone();
-            async move {
-                if let Some(data) = q.data.as_deref() {
-                    let res = match data {
-                        "wol" => handle_wol(&bot, &q, &config).await,
-                        "shutdown_confirm" => ask_shutdown_confirm(&bot, &q).await,
-                        "shutdown_yes" => handle_shutdown(&bot, &q, &config).await,
-                        "status" => handle_status(&bot, &q, &config).await,
-                        "cancel" => cancel(&bot, &q).await,
-                        _ => Ok(()),
-                    };
-                    if let Err(e) = res {
-                        log::error!("Ошибка callback {data}: {e}");
-                    }
-                }
-                respond(())
-            }
-        }));
+        .branch(Update::filter_callback_query().endpoint(callback_handler));
 
-    Dispatcher::builder(bot, handler).enable_ctrlc_handler().build().dispatch().await;
+    Dispatcher::builder(bot.clone(), handler)
+        .dependencies(dptree::deps![cfg])
+        .enable_ctrlc_handler()
+        .build()
+        .dispatch()
+        .await;
 
     Ok(())
 }
@@ -162,7 +139,7 @@ fn is_allowed(config: &Config, upd: &Update) -> bool {
     }
 }
 
-async fn send_main_menu(bot: &AutoSend<Bot>, msg: &Message, _config: &Config) -> Result<()> {
+async fn send_main_menu(bot: &Bot, msg: &Message, _config: &Config) -> Result<()> {
     bot.send_message(msg.chat.id, "🚀 Серверный менеджер\n\nВыберите действие:")
         .parse_mode(ParseMode::MarkdownV2)
         .reply_markup(main_keyboard())
@@ -180,7 +157,7 @@ fn main_keyboard() -> InlineKeyboardMarkup {
     ])
 }
 
-async fn handle_wol(bot: &AutoSend<Bot>, q: &CallbackQuery, config: &Config) -> Result<()> {
+async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
     if let Some(msg) = &q.message {
         bot.edit_message_text(msg.chat.id, msg.id, "⏳ Отправляю команду на включение...")
             .await?;
@@ -238,7 +215,7 @@ fn send_wol(config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn ask_shutdown_confirm(bot: &AutoSend<Bot>, q: &CallbackQuery) -> Result<()> {
+async fn ask_shutdown_confirm(bot: &Bot, q: &CallbackQuery) -> Result<()> {
     if let Some(msg) = &q.message {
         let kb = InlineKeyboardMarkup::new(vec![vec![
             InlineKeyboardButton::callback("✅ Да, выключить", "shutdown_yes"),
@@ -252,7 +229,7 @@ async fn ask_shutdown_confirm(bot: &AutoSend<Bot>, q: &CallbackQuery) -> Result<
     Ok(())
 }
 
-async fn handle_shutdown(bot: &AutoSend<Bot>, q: &CallbackQuery, config: &Config) -> Result<()> {
+async fn handle_shutdown(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
     if let Some(msg) = &q.message {
         bot.edit_message_text(msg.chat.id, msg.id, "⏳ Отправляю команду на выключение...")
             .await?;
@@ -304,7 +281,7 @@ fn send_shutdown(config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn handle_status(bot: &AutoSend<Bot>, q: &CallbackQuery, config: &Config) -> Result<()> {
+async fn handle_status(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
     if let Some(msg) = &q.message {
         bot.edit_message_text(msg.chat.id, msg.id, "⏳ Проверяю статус сервера...")
             .await?;
@@ -367,11 +344,45 @@ async fn check_status(config: Config) -> Result<String> {
     }
 }
 
-async fn cancel(bot: &AutoSend<Bot>, q: &CallbackQuery) -> Result<()> {
+async fn cancel(bot: &Bot, q: &CallbackQuery) -> Result<()> {
     if let Some(msg) = &q.message {
         bot.edit_message_text(msg.chat.id, msg.id, "❌ Операция отменена")
             .reply_markup(main_keyboard())
             .await?;
+    }
+    Ok(())
+}
+// ----------- Endpoint handlers ------------
+
+async fn command_handler(
+    bot: Bot,
+    msg: Message,
+    cmd: Command,
+    cfg: Arc<Config>,
+) -> HandlerResult {
+    match cmd {
+        Command::Start => {
+            if let Err(e) = send_main_menu(&bot, &msg, &cfg).await {
+                log::error!("Ошибка send_main_menu: {e}");
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn callback_handler(bot: Bot, q: CallbackQuery, cfg: Arc<Config>) -> HandlerResult {
+    if let Some(data) = q.data.as_deref() {
+        let res = match data {
+            "wol" => handle_wol(&bot, &q, &cfg).await,
+            "shutdown_confirm" => ask_shutdown_confirm(&bot, &q).await,
+            "shutdown_yes" => handle_shutdown(&bot, &q, &cfg).await,
+            "status" => handle_status(&bot, &q, &cfg).await,
+            "cancel" => cancel(&bot, &q).await,
+            _ => Ok(()),
+        };
+        if let Err(e) = res {
+            log::error!("Ошибка callback {data}: {e}");
+        }
     }
     Ok(())
 } 
