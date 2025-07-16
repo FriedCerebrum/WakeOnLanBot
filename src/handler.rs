@@ -18,7 +18,7 @@ pub async fn run(bot: Bot, cfg: Arc<Config>) {
     }
     
     println!("Создаем listener для polling...");
-    let mut listener = teloxide::update_listeners::polling_default(bot.clone()).await;
+    let listener = teloxide::update_listeners::polling_default(bot.clone()).await;
     log::info!("Polling listener создан");
     println!("Polling listener создан успешно");
     
