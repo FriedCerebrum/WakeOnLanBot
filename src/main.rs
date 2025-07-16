@@ -3,7 +3,7 @@ use std::{env, net::TcpStream, path::Path, time::Duration, io::Read};
 use anyhow::{Result, Context};
 use ssh2::Session;
 use teloxide::{
-    dispatching::UpdateFilterExt,
+    dispatching::{UpdateFilterExt, HandlerExt},
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
     utils::command::BotCommands,
@@ -38,7 +38,11 @@ async fn run() -> Result<()> {
                     let config = config.clone();
                     async move {
                         match cmd {
-                            Command::Start => send_main_menu(&bot, &msg, &config).await?,
+                            Command::Start => {
+                                if let Err(e) = send_main_menu(&bot, &msg, &config).await {
+                                    log::error!("Ошибка send_main_menu: {e}");
+                                }
+                            }
                         }
                         respond(())
                     }
@@ -48,13 +52,16 @@ async fn run() -> Result<()> {
             let config = config.clone();
             async move {
                 if let Some(data) = q.data.as_deref() {
-                    match data {
-                        "wol" => handle_wol(&bot, &q, &config).await?,
-                        "shutdown_confirm" => ask_shutdown_confirm(&bot, &q).await?,
-                        "shutdown_yes" => handle_shutdown(&bot, &q, &config).await?,
-                        "status" => handle_status(&bot, &q, &config).await?,
-                        "cancel" => cancel(&bot, &q).await?,
-                        _ => {},
+                    let res = match data {
+                        "wol" => handle_wol(&bot, &q, &config).await,
+                        "shutdown_confirm" => ask_shutdown_confirm(&bot, &q).await,
+                        "shutdown_yes" => handle_shutdown(&bot, &q, &config).await,
+                        "status" => handle_status(&bot, &q, &config).await,
+                        "cancel" => cancel(&bot, &q).await,
+                        _ => Ok(()),
+                    };
+                    if let Err(e) = res {
+                        log::error!("Ошибка callback {data}: {e}");
                     }
                 }
                 respond(())
