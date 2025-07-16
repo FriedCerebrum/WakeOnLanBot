@@ -1,57 +1,64 @@
 use std::sync::Arc;
-use teloxide::{prelude::*, dptree};
-use teloxide::dispatching::{HandlerExt, UpdateFilterExt};
+use teloxide::prelude::*;
 
-use crate::{Config, Command};
-
-// Тип результата, подходящий для dptree::Handler
-type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
-
-// Бридж-функции больше не нужны.
+use crate::Config;
 
 pub async fn run(bot: Bot, cfg: Arc<Config>) {
-    // Клонируем cfg для использования в замыканиях
-    let cfg_allowed = cfg.clone();
+    teloxide::repl_with_listener(
+        bot.clone(),
+        {
+            let cfg = cfg.clone();
+            move |bot: Bot, upd: Update| {
+                let cfg = cfg.clone();
+                async move {
+                    handle_update(bot, upd, cfg).await
+                }
+            }
+        },
+        teloxide::update_listeners::polling_default(bot).await,
+    )
+    .await;
+}
 
-    let handler = dptree::entry()
-        // Фильтрация по разрешённым пользователям (без DI)
-        .filter(move |upd: Update| crate::is_allowed(&cfg_allowed, &upd))
-        // --- Сообщения ---
-        .branch(
-            Update::filter_message().branch({
-                let cfg_cmd = cfg.clone();
-                teloxide::filter_command::<Command, HandlerResult>()
-                    .endpoint(move |bot: Bot, msg: Message, cmd: Command| {
-                        let cfg = cfg_cmd.clone();
-                        async move {
-                            // Пробуем обработать команду, логируем возможную ошибку –
-                            // dptree ожидает HandlerResult, а не ResponseResult.
-                            if let Err(e) = crate::command_handler(cfg, bot, msg, cmd).await {
-                                log::error!("command_handler error: {e}");
-                            }
-                            Ok(()) as HandlerResult
-                        }
-                    })
-            })
-        )
-        // --- CallbackQuery ---
-        .branch({
-            let cfg_cb = cfg.clone();
-            Update::filter_callback_query()
-                .endpoint(move |bot: Bot, q: CallbackQuery| {
-                    let cfg = cfg_cb.clone();
-                    async move {
-                        if let Err(e) = crate::callback_handler(cfg, bot, q).await {
-                            log::error!("callback_handler error: {e}");
-                        }
-                        Ok(()) as HandlerResult
+async fn handle_update(bot: Bot, upd: Update, cfg: Arc<Config>) -> ResponseResult<()> {
+    match upd.kind {
+        teloxide::types::UpdateKind::Message(msg) => {
+            let user_id = msg.from.as_ref().map(|u| u.id.0);
+            if !crate::is_allowed(&cfg, user_id) {
+                return Ok(());
+            }
+            
+            if let Some(text) = msg.text() {
+                if text.starts_with("/start") {
+                    match crate::send_main_menu(&bot, &msg, &cfg).await {
+                        Ok(_) => {},
+                        Err(e) => log::error!("Error sending main menu: {}", e),
                     }
-                })
-        });
-
-    Dispatcher::builder(bot.clone(), handler)
-        .enable_ctrlc_handler()
-        .build()
-        .dispatch()
-        .await;
+                }
+            }
+        }
+        teloxide::types::UpdateKind::CallbackQuery(q) => {
+            let user_id = Some(q.from.id.0);
+            if !crate::is_allowed(&cfg, user_id) {
+                return Ok(());
+            }
+            
+            if let Some(data) = q.data.as_deref() {
+                let result = match data {
+                    "wol" => crate::handle_wol(&bot, &q, &cfg).await,
+                    "shutdown_confirm" => crate::ask_shutdown_confirm(&bot, &q).await,
+                    "shutdown_yes" => crate::handle_shutdown(&bot, &q, &cfg).await,
+                    "status" => crate::handle_status(&bot, &q, &cfg).await,
+                    "cancel" => crate::cancel(&bot, &q).await,
+                    _ => Ok(()),
+                };
+                if let Err(e) = result {
+                    log::error!("Callback handler error for {}: {}", data, e);
+                }
+            }
+        }
+        _ => {} // Ignore other update types
+    }
+    
+    Ok(())
 } 
