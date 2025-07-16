@@ -1,24 +1,29 @@
 use std::{env, net::TcpStream, path::Path, time::Duration, io::Read};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use ssh2::Session;
 use teloxide::{
     dispatching::UpdateFilterExt,
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
     utils::command::BotCommands,
-    dptree::di::DependencyMap, // ensure compile
-    dptree::handler_ext::HandlerExt,
 };
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    if let Err(e) = run().await {
+        eprintln!("Ошибка запуска: {:#}", e);
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<()> {
     // Инициализируем логирование
     pretty_env_logger::init();
     log::info!("Запуск WakeOnLanBot...");
 
     // Читаем конфигурацию из переменных окружения
-    let config = Config::from_env().context("Не удалось прочитать конфигурацию")?;
+    let config = Config::from_env()?;
 
     // Создаем экземпляр бота
     let bot = Bot::new(config.bot_token.clone()).auto_send();

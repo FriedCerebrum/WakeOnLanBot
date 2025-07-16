@@ -6,7 +6,10 @@ services:
     container_name: tg-server-manager
     restart: unless-stopped
     network_mode: "host"
+    env_file:
+      - .env
     environment:
+      - RUST_LOG=info
       - BOT_TOKEN
       - ALLOWED_USERS
       - SERVER_MAC
