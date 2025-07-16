@@ -218,9 +218,16 @@ fn is_allowed(config: &Config, user_id: Option<u64>) -> bool {
     match user_id {
         Some(uid) => {
             let uid = uid as i64;
-            config.allowed_users.contains(&uid)
+            let allowed = config.allowed_users.contains(&uid);
+            println!("🔐 Проверка авторизации: пользователь {} -> {}", uid, allowed);
+            log::info!("Проверка авторизации: пользователь {} -> {}", uid, allowed);
+            allowed
         },
-        None => false,
+        None => {
+            println!("🔐 Проверка авторизации: пользователь None -> false");
+            log::warn!("Попытка авторизации без user_id");
+            false
+        },
     }
 }
 
