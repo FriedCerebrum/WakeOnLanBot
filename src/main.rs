@@ -12,6 +12,8 @@ use teloxide::dptree::{endpoint, deps};
 use teloxide::prelude::ResponseResult;
 use std::sync::Arc;
 
+mod handler;
+
 #[tokio::main]
 async fn main() {
     if let Err(e) = run().await {
@@ -33,24 +35,7 @@ async fn run() -> Result<()> {
 
     let cfg = Arc::new(config);
 
-    let handler = dptree::entry()
-        .filter(|upd: Update, cfg: Arc<Config>| is_allowed(&cfg, &upd))
-        .branch(
-            Update::filter_message()
-                .filter_command::<Command>()
-                .endpoint(endpoint(command_handler)),
-        )
-        .branch(
-            Update::filter_callback_query()
-                .endpoint(endpoint(callback_handler)),
-        );
-
-    Dispatcher::builder(bot.clone(), handler)
-        .dependencies(deps![cfg])
-        .enable_ctrlc_handler()
-        .build()
-        .dispatch()
-        .await;
+    handler::run(bot.clone(), cfg.clone()).await;
 
     Ok(())
 }
