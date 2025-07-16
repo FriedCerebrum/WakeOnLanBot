@@ -44,6 +44,7 @@ async fn handle_update(bot: Bot, upd: Update, cfg: Arc<Config>) -> ResponseResul
             }
             
             if let Some(data) = q.data.as_deref() {
+                log::info!("Получен callback query: '{}' от пользователя {}", data, q.from.id.0);
                 let result = match data {
                     "wol" => crate::handle_wol(&bot, &q, &cfg).await,
                     "shutdown_confirm" => crate::ask_shutdown_confirm(&bot, &q).await,
