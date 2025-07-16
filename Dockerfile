@@ -6,12 +6,12 @@ WORKDIR /app
 COPY Cargo.toml ./
 # Опционально, ускоряем кэш
 RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release --locked
+RUN cargo build --release
 
 # Копируем исходники проекта
 COPY src ./src
 COPY keys /app/keys/
-RUN cargo build --release --locked
+RUN cargo build --release
 
 # === Финальный образ ===
 FROM debian:bookworm-slim
