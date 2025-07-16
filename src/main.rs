@@ -8,7 +8,7 @@ use teloxide::{
     types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
     utils::command::BotCommands,
 };
-use teloxide::dptree::HandlerResult;
+use teloxide::prelude::ResponseResult;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -360,7 +360,7 @@ async fn command_handler(
     cfg: Arc<Config>,
     msg: Message,
     cmd: Command,
-) -> HandlerResult {
+) -> ResponseResult<()> {
     match cmd {
         Command::Start => {
             if let Err(e) = send_main_menu(&bot, &msg, &cfg).await {
@@ -371,7 +371,7 @@ async fn command_handler(
     Ok(())
 }
 
-async fn callback_handler(bot: Bot, cfg: Arc<Config>, q: CallbackQuery) -> HandlerResult {
+async fn callback_handler(bot: Bot, cfg: Arc<Config>, q: CallbackQuery) -> ResponseResult<()> {
     if let Some(data) = q.data.as_deref() {
         let res = match data {
             "wol" => handle_wol(&bot, &q, &cfg).await,
