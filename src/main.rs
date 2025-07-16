@@ -1,12 +1,13 @@
 use std::{env, net::TcpStream, path::Path, time::Duration, io::Read};
 
-use anyhow::Result;
+use anyhow::{Result, Context};
 use ssh2::Session;
 use teloxide::{
     dispatching::UpdateFilterExt,
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
     utils::command::BotCommands,
+    respond,
 };
 
 #[tokio::main]
@@ -39,7 +40,7 @@ async fn run() -> Result<()> {
                         match cmd {
                             Command::Start => send_main_menu(&bot, &msg, &config).await?,
                         }
-                        respond(()).await
+                        respond(())
                     }
                 }),
         )
@@ -56,7 +57,7 @@ async fn run() -> Result<()> {
                         _ => {},
                     }
                 }
-                respond(()).await
+                respond(())
             }
         }));
 
@@ -138,7 +139,7 @@ impl Config {
 
 // --------------------------------------------------
 #[derive(BotCommands)]
-#[command(rename = "lowercase", description = "Список команд")]
+#[command(rename_rule = "lowercase", description = "Список команд")]
 enum Command {
     #[command(description = "Показать главное меню")]
     Start,
@@ -146,7 +147,10 @@ enum Command {
 
 fn is_allowed(config: &Config, upd: &Update) -> bool {
     match upd.clone().user() {
-        Some(user) => config.allowed_users.contains(&user.id.0 as &i64),
+        Some(user) => {
+            let uid = user.id.0 as i64;
+            config.allowed_users.contains(&uid)
+        },
         None => false,
     }
 }
@@ -305,9 +309,14 @@ async fn handle_status(bot: &AutoSend<Bot>, q: &CallbackQuery, config: &Config) 
                 bot.edit_message_text(msg.chat.id, msg.id, info).await?;
             }
         }
-        Ok(Err(e)) | Err(e) => {
+        Ok(Err(e)) => {
             if let Some(msg) = &q.message {
                 bot.edit_message_text(msg.chat.id, msg.id, format!("❌ Ошибка: {}", e)).await?;
+            }
+        }
+        Err(_) => {
+            if let Some(msg) = &q.message {
+                bot.edit_message_text(msg.chat.id, msg.id, "⏱️ Таймаут!").await?;
             }
         }
     }
