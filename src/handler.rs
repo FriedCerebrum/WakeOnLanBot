@@ -5,11 +5,11 @@ use teloxide::dispatching::UpdateFilterExt;
 use crate::{Config, Command};
 
 // Проброс к функциям, определённым в crate:: (main.rs)
-async fn command_bridge(cfg: Arc<Config>, bot: Bot, msg: Message, cmd: Command) -> teloxide::prelude::ResponseResult<()> {
+async fn command_bridge(bot: Bot, cfg: Arc<Config>, msg: Message, cmd: Command) -> teloxide::prelude::ResponseResult<()> {
     crate::command_handler(cfg, bot, msg, cmd).await
 }
 
-async fn callback_bridge(cfg: Arc<Config>, bot: Bot, q: CallbackQuery) -> teloxide::prelude::ResponseResult<()> {
+async fn callback_bridge(bot: Bot, cfg: Arc<Config>, q: CallbackQuery) -> teloxide::prelude::ResponseResult<()> {
     crate::callback_handler(cfg, bot, q).await
 }
 
