@@ -3,13 +3,10 @@ use std::{env, net::TcpStream, path::Path, time::Duration, io::Read};
 use anyhow::{Result, Context};
 use ssh2::Session;
 use teloxide::{
-    dispatching::{HandlerExt, UpdateFilterExt},
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
     utils::command::BotCommands,
 };
-use teloxide::dptree::{endpoint, deps};
-use teloxide::prelude::ResponseResult;
 use std::sync::Arc;
 
 mod handler;
@@ -119,10 +116,10 @@ enum Command {
     Start,
 }
 
-fn is_allowed(config: &Config, upd: &Update) -> bool {
-    match upd.clone().user() {
-        Some(user) => {
-            let uid = user.id.0 as i64;
+fn is_allowed(config: &Config, user_id: Option<u64>) -> bool {
+    match user_id {
+        Some(uid) => {
+            let uid = uid as i64;
             config.allowed_users.contains(&uid)
         },
         None => false,
@@ -149,7 +146,7 @@ fn main_keyboard() -> InlineKeyboardMarkup {
 
 async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
     if let Some(msg) = &q.message {
-        bot.edit_message_text(msg.chat.id, msg.id, "⏳ Отправляю команду на включение...")
+        bot.edit_message_text(msg.chat().id, msg.id(), "⏳ Отправляю команду на включение...")
             .await?;
     }
 
@@ -162,8 +159,8 @@ async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()>
         Ok(_) => {
             if let Some(msg) = &q.message {
                 bot.edit_message_text(
-                    msg.chat.id,
-                    msg.id,
+                    msg.chat().id,
+                    msg.id(),
                     "🔌 Magic packet отправлен!\n\nСервер должен запуститься в течение 30 секунд.",
                 )
                 .await?;
@@ -171,7 +168,7 @@ async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()>
         }
         Err(e) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat.id, msg.id, format!("❌ Ошибка: {}", e)).await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), format!("❌ Ошибка: {}", e)).await?;
             }
         }
     }
@@ -211,7 +208,7 @@ async fn ask_shutdown_confirm(bot: &Bot, q: &CallbackQuery) -> Result<()> {
             InlineKeyboardButton::callback("✅ Да, выключить", "shutdown_yes"),
             InlineKeyboardButton::callback("❌ Отмена", "cancel"),
         ]]);
-        bot.edit_message_text(msg.chat.id, msg.id, "⚠️ Подтверждение\n\nВы уверены, что хотите выключить сервер?")
+        bot.edit_message_text(msg.chat().id, msg.id(), "⚠️ Подтверждение\n\nВы уверены, что хотите выключить сервер?")
             .parse_mode(ParseMode::MarkdownV2)
             .reply_markup(kb)
             .await?;
@@ -221,7 +218,7 @@ async fn ask_shutdown_confirm(bot: &Bot, q: &CallbackQuery) -> Result<()> {
 
 async fn handle_shutdown(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
     if let Some(msg) = &q.message {
-        bot.edit_message_text(msg.chat.id, msg.id, "⏳ Отправляю команду на выключение...")
+        bot.edit_message_text(msg.chat().id, msg.id(), "⏳ Отправляю команду на выключение...")
             .await?;
     }
 
@@ -233,12 +230,12 @@ async fn handle_shutdown(bot: &Bot, q: &CallbackQuery, config: &Config) -> Resul
     {
         Ok(_) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat.id, msg.id, "🔴 Команда выключения отправлена!").await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), "🔴 Команда выключения отправлена!").await?;
             }
         }
         Err(e) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat.id, msg.id, format!("❌ Ошибка: {}", e)).await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), format!("❌ Ошибка: {}", e)).await?;
             }
         }
     }
@@ -273,24 +270,24 @@ fn send_shutdown(config: &Config) -> Result<()> {
 
 async fn handle_status(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
     if let Some(msg) = &q.message {
-        bot.edit_message_text(msg.chat.id, msg.id, "⏳ Проверяю статус сервера...")
+        bot.edit_message_text(msg.chat().id, msg.id(), "⏳ Проверяю статус сервера...")
             .await?;
     }
 
     match tokio::time::timeout(config.nc_timeout, check_status(config.clone())).await {
         Ok(Ok(info)) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat.id, msg.id, info).await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), info).await?;
             }
         }
         Ok(Err(e)) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat.id, msg.id, format!("❌ Ошибка: {}", e)).await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), format!("❌ Ошибка: {}", e)).await?;
             }
         }
         Err(_) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat.id, msg.id, "⏱️ Таймаут!").await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), "⏱️ Таймаут!").await?;
             }
         }
     }
@@ -336,38 +333,11 @@ async fn check_status(config: Config) -> Result<String> {
 
 async fn cancel(bot: &Bot, q: &CallbackQuery) -> Result<()> {
     if let Some(msg) = &q.message {
-        bot.edit_message_text(msg.chat.id, msg.id, "❌ Операция отменена")
+        bot.edit_message_text(msg.chat().id, msg.id(), "❌ Операция отменена")
             .reply_markup(main_keyboard())
             .await?;
     }
     Ok(())
 }
-// ----------- Endpoint handlers ------------
-
-async fn command_handler(cfg: Arc<Config>, bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
-    match cmd {
-        Command::Start => {
-            if let Err(e) = send_main_menu(&bot, &msg, &cfg).await {
-                log::error!("Ошибка send_main_menu: {e}");
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn callback_handler(cfg: Arc<Config>, bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
-    if let Some(data) = q.data.as_deref() {
-        let res = match data {
-            "wol" => handle_wol(&bot, &q, &cfg).await,
-            "shutdown_confirm" => ask_shutdown_confirm(&bot, &q).await,
-            "shutdown_yes" => handle_shutdown(&bot, &q, &cfg).await,
-            "status" => handle_status(&bot, &q, &cfg).await,
-            "cancel" => cancel(&bot, &q).await,
-            _ => Ok(()),
-        };
-        if let Err(e) = res {
-            log::error!("Ошибка callback {data}: {e}");
-        }
-    }
-    Ok(())
-} 
+// Note: Handler functions are now directly integrated into the dispatcher
+// These were the original wrapper functions that are no longer needed 
