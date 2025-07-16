@@ -35,6 +35,7 @@ pub async fn run(bot: Bot, cfg: Arc<Config>) {
     
     log::info!("Polling listener создан с поддержкой Message и CallbackQuery");
     println!("Polling listener создан успешно с поддержкой кнопок");
+    println!("📋 Разрешенные типы обновлений: {:?}", allowed_updates);
     
     // Настройки для более стабильного polling
     println!("Настраиваем параметры polling...");
@@ -51,6 +52,7 @@ pub async fn run(bot: Bot, cfg: Arc<Config>) {
                 let cfg = cfg.clone();
                 async move {
                     println!("=== ПОЛУЧЕНО ОБНОВЛЕНИЕ ===");
+                    println!("🔍 Тип обновления: {:?}", upd.kind);
                     log::info!("Получено обновление: {:?}", upd.kind);
                     
                     match handle_update(bot, upd, cfg).await {
@@ -87,17 +89,23 @@ async fn handle_update(bot: Bot, upd: Update, cfg: Arc<Config>) -> ResponseResul
             
             if let Some(text) = msg.text() {
                 println!("📝 Текст сообщения: '{}'", text);
-                if text.starts_with("/start") {
-                    println!("🚀 Обрабатываем команду /start");
-                    match crate::send_main_menu(&bot, &msg, &cfg).await {
-                        Ok(_) => {
-                            println!("✅ Главное меню отправлено");
-                            log::info!("Главное меню отправлено пользователю {:?}", user_id);
-                        },
-                        Err(e) => {
-                            println!("❌ Ошибка отправки главного меню: {}", e);
-                            log::error!("Error sending main menu: {}", e);
-                        },
+                match text.to_lowercase().as_str() {
+                    "/start" | "/wol" => {
+                        println!("🚀 Обрабатываем команду {}", text);
+                        match crate::send_main_menu(&bot, &msg, &cfg).await {
+                            Ok(_) => {
+                                println!("✅ Главное меню отправлено");
+                                log::info!("Главное меню отправлено пользователю {:?}", user_id);
+                            },
+                            Err(e) => {
+                                println!("❌ Ошибка отправки главного меню: {}", e);
+                                log::error!("Error sending main menu: {}", e);
+                            },
+                        }
+                    }
+                    _ => {
+                        println!("⚠️ Неизвестная команда: '{}'", text);
+                        log::warn!("Неизвестная команда: '{}' от пользователя {:?}", text, user_id);
                     }
                 }
             }
@@ -106,6 +114,7 @@ async fn handle_update(bot: Bot, upd: Update, cfg: Arc<Config>) -> ResponseResul
             println!("🔔 Получен CALLBACK QUERY!");
             println!("👤 От пользователя: {}", q.from.id.0);
             println!("📊 Callback data: {:?}", q.data);
+            println!("🔍 Полный callback query: {:?}", q);
             log::info!("Получен callback query: '{:?}' от пользователя {}", q.data, q.from.id.0);
             
             let user_id = Some(q.from.id.0);
