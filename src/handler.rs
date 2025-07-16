@@ -4,6 +4,9 @@ use teloxide::dispatching::{HandlerExt, UpdateFilterExt};
 
 use crate::{Config, Command};
 
+// Тип результата, подходящий для dptree::Handler
+type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
 // Бридж-функции больше не нужны.
 
 pub async fn run(bot: Bot, cfg: Arc<Config>) {
@@ -19,7 +22,14 @@ pub async fn run(bot: Bot, cfg: Arc<Config>) {
             teloxide::filter_command::<Command, _>()
                 .endpoint(move |bot: Bot, msg: Message, cmd: Command| {
                     let cfg = cfg_cmd.clone();
-                    async move { crate::command_handler(cfg, bot, msg, cmd).await }
+                    async move {
+                        // Пробуем обработать команду, логируем возможную ошибку –
+                        // dptree ожидает HandlerResult, а не ResponseResult.
+                        if let Err(e) = crate::command_handler(cfg, bot, msg, cmd).await {
+                            log::error!("command_handler error: {e}");
+                        }
+                        Ok(()) as HandlerResult
+                    }
                 })
         })
         // --- CallbackQuery ---
@@ -28,7 +38,12 @@ pub async fn run(bot: Bot, cfg: Arc<Config>) {
             Update::filter_callback_query()
                 .endpoint(move |bot: Bot, q: CallbackQuery| {
                     let cfg = cfg_cb.clone();
-                    async move { crate::callback_handler(cfg, bot, q).await }
+                    async move {
+                        if let Err(e) = crate::callback_handler(cfg, bot, q).await {
+                            log::error!("callback_handler error: {e}");
+                        }
+                        Ok(()) as HandlerResult
+                    }
                 })
         });
 
