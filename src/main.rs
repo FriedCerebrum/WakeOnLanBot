@@ -1,6 +1,6 @@
 use std::{env, net::TcpStream, path::Path, time::Duration, io::Read};
 
-use anyhow::{Result, Context};
+use anyhow::{Result};
 use ssh2::Session;
 use teloxide::{
     prelude::*,
