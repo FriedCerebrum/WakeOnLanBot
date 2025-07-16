@@ -19,7 +19,7 @@ pub async fn run(bot: Bot, cfg: Arc<Config>) {
         // --- Команды ---
         .branch({
             let cfg_cmd = cfg.clone();
-            teloxide::filter_command::<Command, _>()
+            teloxide::filter_command::<Command, HandlerResult>()
                 .endpoint(move |bot: Bot, msg: Message, cmd: Command| {
                     let cfg = cfg_cmd.clone();
                     async move {
