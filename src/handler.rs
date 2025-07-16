@@ -12,12 +12,16 @@ pub async fn run(bot: Bot, cfg: Arc<Config>) {
         .branch(
             Update::filter_message()
                 .filter_command::<Command>()
-                .endpoint(crate::command_handler),
+                .endpoint(|cfg: Arc<Config>, bot: Bot, msg: Message, cmd: Command| async move {
+                    crate::command_handler(cfg, bot, msg, cmd).await
+                }),
         )
         // --- CallbackQuery ---
         .branch(
             Update::filter_callback_query()
-                .endpoint(crate::callback_handler),
+                .endpoint(|cfg: Arc<Config>, bot: Bot, q: CallbackQuery| async move {
+                    crate::callback_handler(cfg, bot, q).await
+                }),
         );
 
     Dispatcher::builder(bot.clone(), handler)
