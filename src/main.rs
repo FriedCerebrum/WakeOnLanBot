@@ -38,11 +38,11 @@ async fn run() -> Result<()> {
         .branch(
             Update::filter_message()
                 .filter_command::<Command>()
-                .endpoint(endpoint!(command_handler)),
+                .endpoint(endpoint(command_handler)),
         )
         .branch(
             Update::filter_callback_query()
-                .endpoint(endpoint!(callback_handler)),
+                .endpoint(endpoint(callback_handler)),
         );
 
     Dispatcher::builder(bot.clone(), handler)
