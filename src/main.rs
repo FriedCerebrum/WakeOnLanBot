@@ -19,6 +19,9 @@ async fn main() {
     // МАКСИМАЛЬНО РАННЯЯ ДИАГНОСТИКА
     println!("=== СТАРТ ПРИЛОЖЕНИЯ ===");
     println!("Rust приложение запущено успешно!");
+    println!("Версия Rust: {}", env!("RUSTC_VERSION", "неизвестна"));
+    println!("Пакет: {} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+    println!("Teloxide версия: {}", option_env!("CARGO_PKG_VERSION_teloxide").unwrap_or("неизвестна"));
     
     // Проверяем критические переменные окружения ДО инициализации логгера
     println!("=== ПРОВЕРКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ===");
@@ -62,12 +65,35 @@ async fn run() -> Result<()> {
     let bot = Bot::new(config.bot_token.clone());
     println!("Экземпляр бота создан успешно");
     log::info!("Экземпляр бота создан");
+    
+    // Проверяем связь с Telegram API
+    println!("=== ПРОВЕРКА СВЯЗИ С TELEGRAM API ===");
+    match bot.get_me().await {
+        Ok(me) => {
+            println!("✅ Связь с Telegram API работает!");
+            println!("   Имя бота: {}", me.first_name);
+            println!("   Username: @{}", me.username.unwrap_or_else(|| "НЕТ".to_string()));
+            log::info!("Telegram API отвечает, бот: {}", me.first_name);
+        },
+        Err(e) => {
+            println!("❌ ОШИБКА связи с Telegram API: {}", e);
+            log::error!("Ошибка связи с Telegram API: {}", e);
+            return Err(anyhow::anyhow!("Не могу подключиться к Telegram API: {}", e));
+        }
+    }
 
     let cfg = Arc::new(config);
 
     println!("=== ЗАПУСК ОБРАБОТЧИКА ===");
     log::info!("Запускаем обработчик событий...");
+    
+    // Важно: обработчик должен работать бесконечно
+    println!("⚠️ ВНИМАНИЕ: Запускаем обработчик событий (это должно работать бесконечно)");
     handler::run(bot.clone(), cfg.clone()).await;
+    
+    // Если мы здесь - это означает, что обработчик завершился (что не должно происходить)
+    println!("🚨 КРИТИЧЕСКАЯ ОШИБКА: Обработчик событий завершился!");
+    log::error!("Обработчик событий завершился неожиданно!");
 
     Ok(())
 }
@@ -199,10 +225,16 @@ fn is_allowed(config: &Config, user_id: Option<u64>) -> bool {
 }
 
 async fn send_main_menu(bot: &Bot, msg: &Message, _config: &Config) -> Result<()> {
+    println!("📤 Отправляем главное меню");
+    let keyboard = main_keyboard();
+    println!("⌨️ Клавиатура создана: {:?}", keyboard);
+    log::info!("Отправляем главное меню с клавиатурой");
+    
     bot.send_message(msg.chat.id, "🚀 Серверный менеджер\n\nВыберите действие:")
         .parse_mode(ParseMode::MarkdownV2)
-        .reply_markup(main_keyboard())
+        .reply_markup(keyboard)
         .await?;
+    println!("✅ Главное меню отправлено");
     Ok(())
 }
 
@@ -217,10 +249,13 @@ fn main_keyboard() -> InlineKeyboardMarkup {
 }
 
 async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
+    println!("🔌 WOL Handler: Начало обработки");
     log::info!("Обрабатываем WOL запрос от пользователя {}", q.from.id.0);
     
     // КРИТИЧЕСКИ ВАЖНО: отвечаем на callback query
+    println!("🔌 WOL Handler: Отвечаем на callback query");
     bot.answer_callback_query(&q.id).await?;
+    println!("✅ WOL Handler: Callback query отвечен");
     
     if let Some(msg) = &q.message {
         bot.edit_message_text(msg.chat.id, msg.id, "⏳ Отправляю команду на включение...")
@@ -280,10 +315,13 @@ fn send_wol(config: &Config) -> Result<()> {
 }
 
 async fn ask_shutdown_confirm(bot: &Bot, q: &CallbackQuery) -> Result<()> {
+    println!("🔴 Shutdown Confirm Handler: Начало обработки");
     log::info!("Запрос подтверждения выключения от пользователя {}", q.from.id.0);
     
     // КРИТИЧЕСКИ ВАЖНО: отвечаем на callback query
+    println!("🔴 Shutdown Confirm Handler: Отвечаем на callback query");
     bot.answer_callback_query(&q.id).await?;
+    println!("✅ Shutdown Confirm Handler: Callback query отвечен");
     
     if let Some(msg) = &q.message {
         let kb = InlineKeyboardMarkup::new(vec![vec![
@@ -356,10 +394,13 @@ fn send_shutdown(config: &Config) -> Result<()> {
 }
 
 async fn handle_status(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
+    println!("🟢 Status Handler: Начало обработки");
     log::info!("Проверяем статус сервера по запросу пользователя {}", q.from.id.0);
     
     // КРИТИЧЕСКИ ВАЖНО: отвечаем на callback query
+    println!("🟢 Status Handler: Отвечаем на callback query");
     bot.answer_callback_query(&q.id).await?;
+    println!("✅ Status Handler: Callback query отвечен");
     
     if let Some(msg) = &q.message {
                     bot.edit_message_text(msg.chat.id, msg.id, "⏳ Проверяю статус сервера...")
