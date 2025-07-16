@@ -1,5 +1,5 @@
 # === Сборочный этап ===
-FROM rust:1.71-slim AS builder
+FROM rust:1.82-slim AS builder
 WORKDIR /app
 
 # Копируем манифест и зависимости
