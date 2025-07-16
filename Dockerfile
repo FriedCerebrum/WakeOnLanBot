@@ -34,4 +34,13 @@ RUN echo "=== Проверка SSH ключей ===" && ls -la /app/keys/ && ech
 
 ENV RUST_LOG=debug
 
-CMD ["wakeonlan_bot"] 
+# Создаем wrapper скрипт для диагностики
+RUN echo '#!/bin/bash' > /app/start.sh && \
+    echo 'echo "=== ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ==="' >> /app/start.sh && \
+    echo 'env | grep -E "(BOT_TOKEN|ALLOWED_USERS|SERVER_MAC|ROUTER_|SERVER_|SSH_|RUST_LOG)" | sort' >> /app/start.sh && \
+    echo 'echo "=== КОНЕЦ ПЕРЕМЕННЫХ ==="' >> /app/start.sh && \
+    echo 'echo "=== ЗАПУСК ПРИЛОЖЕНИЯ ==="' >> /app/start.sh && \
+    echo 'wakeonlan_bot' >> /app/start.sh && \
+    chmod +x /app/start.sh
+
+CMD ["/app/start.sh"] 

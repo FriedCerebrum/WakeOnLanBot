@@ -13,18 +13,24 @@ mod handler;
 
 #[tokio::main]
 async fn main() {
+    println!("=== СТАРТ ПРИЛОЖЕНИЯ ===");
     if let Err(e) = run().await {
         eprintln!("Ошибка запуска: {:#}", e);
         std::process::exit(1);
     }
+    println!("=== ПРИЛОЖЕНИЕ ЗАВЕРШЕНО ===");
 }
 
 async fn run() -> Result<()> {
+    println!("=== ФУНКЦИЯ RUN ЗАПУЩЕНА ===");
+    
     // Инициализируем логирование
     pretty_env_logger::init();
+    println!("=== ЛОГГЕР ИНИЦИАЛИЗИРОВАН ===");
     log::info!("Запуск WakeOnLanBot...");
 
     // Читаем конфигурацию из переменных окружения
+    println!("=== НАЧИНАЕМ ЧТЕНИЕ КОНФИГУРАЦИИ ===");
     let config = Config::from_env()?;
     log::info!("Конфигурация успешно загружена!");
 
@@ -62,27 +68,37 @@ struct Config {
 
 impl Config {
     fn from_env() -> Result<Self> {
+        println!("=== ВХОД В ФУНКЦИЮ from_env ===");
         log::info!("Начинаю чтение конфигурации из переменных окружения...");
         
+        println!("=== ЧИТАЕМ BOT_TOKEN ===");
         let bot_token = env::var("BOT_TOKEN").context("BOT_TOKEN пуст")?;
+        println!("=== BOT_TOKEN ПРОЧИТАН ===");
         log::info!("BOT_TOKEN прочитан успешно");
         
+        println!("=== ЧИТАЕМ ALLOWED_USERS ===");
         let allowed_users_str = env::var("ALLOWED_USERS").unwrap_or_default();
+        println!("=== ALLOWED_USERS СТРОКА: '{}' ===", allowed_users_str);
         log::info!("ALLOWED_USERS строка: '{}'", allowed_users_str);
         
         let allowed_users = allowed_users_str
             .split(',')
             .filter_map(|s| s.trim().parse::<i64>().ok())
             .collect::<Vec<_>>();
+        println!("=== ALLOWED_USERS РАСПАРСЕНЫ: {:?} ===", allowed_users);
         log::info!("ALLOWED_USERS распарсены: {:?}", allowed_users);
         
+        println!("=== ЧИТАЕМ SERVER_MAC ===");
         let server_mac = env::var("SERVER_MAC").context("SERVER_MAC пуст")?;
+        println!("=== SERVER_MAC ПРОЧИТАН: '{}' ===", server_mac);
         log::info!("SERVER_MAC прочитан: '{}'", server_mac);
 
         if allowed_users.is_empty() {
+            println!("=== ОШИБКА: ALLOWED_USERS ПУСТ ===");
             anyhow::bail!("ALLOWED_USERS пуст");
         }
 
+        println!("=== ВСЕ ОБЯЗАТЕЛЬНЫЕ ПЕРЕМЕННЫЕ ПРОЧИТАНЫ ===");
         log::info!("Все обязательные переменные прочитаны успешно");
 
         Ok(Self {
