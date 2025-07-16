@@ -3,11 +3,12 @@ use std::{env, net::TcpStream, path::Path, time::Duration, io::Read};
 use anyhow::{Result, Context};
 use ssh2::Session;
 use teloxide::{
-    dispatching::{HandlerExt, UpdateFilterExt, HandlerResult},
+    dispatching::{HandlerExt, UpdateFilterExt},
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
     utils::command::BotCommands,
 };
+use teloxide::dptree::HandlerResult;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -356,9 +357,9 @@ async fn cancel(bot: &Bot, q: &CallbackQuery) -> Result<()> {
 
 async fn command_handler(
     bot: Bot,
+    cfg: Arc<Config>,
     msg: Message,
     cmd: Command,
-    cfg: Arc<Config>,
 ) -> HandlerResult {
     match cmd {
         Command::Start => {
@@ -370,7 +371,7 @@ async fn command_handler(
     Ok(())
 }
 
-async fn callback_handler(bot: Bot, q: CallbackQuery, cfg: Arc<Config>) -> HandlerResult {
+async fn callback_handler(bot: Bot, cfg: Arc<Config>, q: CallbackQuery) -> HandlerResult {
     if let Some(data) = q.data.as_deref() {
         let res = match data {
             "wol" => handle_wol(&bot, &q, &cfg).await,
