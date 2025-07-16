@@ -217,6 +217,11 @@ fn main_keyboard() -> InlineKeyboardMarkup {
 }
 
 async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
+    log::info!("Обрабатываем WOL запрос от пользователя {}", q.from.id.0);
+    
+    // КРИТИЧЕСКИ ВАЖНО: отвечаем на callback query
+    bot.answer_callback_query(&q.id).await?;
+    
     if let Some(msg) = &q.message {
         bot.edit_message_text(msg.chat.id, msg.id, "⏳ Отправляю команду на включение...")
             .await?;
@@ -275,6 +280,11 @@ fn send_wol(config: &Config) -> Result<()> {
 }
 
 async fn ask_shutdown_confirm(bot: &Bot, q: &CallbackQuery) -> Result<()> {
+    log::info!("Запрос подтверждения выключения от пользователя {}", q.from.id.0);
+    
+    // КРИТИЧЕСКИ ВАЖНО: отвечаем на callback query
+    bot.answer_callback_query(&q.id).await?;
+    
     if let Some(msg) = &q.message {
         let kb = InlineKeyboardMarkup::new(vec![vec![
             InlineKeyboardButton::callback("✅ Да, выключить", "shutdown_yes"),
@@ -289,6 +299,11 @@ async fn ask_shutdown_confirm(bot: &Bot, q: &CallbackQuery) -> Result<()> {
 }
 
 async fn handle_shutdown(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
+    log::info!("Обрабатываем запрос выключения от пользователя {}", q.from.id.0);
+    
+    // КРИТИЧЕСКИ ВАЖНО: отвечаем на callback query
+    bot.answer_callback_query(&q.id).await?;
+    
     if let Some(msg) = &q.message {
                     bot.edit_message_text(msg.chat.id, msg.id, "⏳ Отправляю команду на выключение...")
             .await?;
@@ -341,6 +356,11 @@ fn send_shutdown(config: &Config) -> Result<()> {
 }
 
 async fn handle_status(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
+    log::info!("Проверяем статус сервера по запросу пользователя {}", q.from.id.0);
+    
+    // КРИТИЧЕСКИ ВАЖНО: отвечаем на callback query
+    bot.answer_callback_query(&q.id).await?;
+    
     if let Some(msg) = &q.message {
                     bot.edit_message_text(msg.chat.id, msg.id, "⏳ Проверяю статус сервера...")
             .await?;
@@ -404,6 +424,11 @@ async fn check_status(config: Config) -> Result<String> {
 }
 
 async fn cancel(bot: &Bot, q: &CallbackQuery) -> Result<()> {
+    log::info!("Отмена операции пользователем {}", q.from.id.0);
+    
+    // КРИТИЧЕСКИ ВАЖНО: отвечаем на callback query
+    bot.answer_callback_query(&q.id).await?;
+    
     if let Some(msg) = &q.message {
         bot.edit_message_text(msg.chat.id, msg.id, "❌ Операция отменена")
             .reply_markup(main_keyboard())
