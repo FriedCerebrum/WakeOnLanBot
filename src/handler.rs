@@ -30,7 +30,7 @@ pub async fn run(bot: Bot, cfg: Arc<Config>) {
     let listener = Polling::builder(bot.clone())
         .timeout(std::time::Duration::from_secs(10))
         .limit(100)
-        .allowed_updates(allowed_updates)
+        .allowed_updates(allowed_updates.clone())
         .build();
     
     log::info!("Polling listener создан с поддержкой Message и CallbackQuery");
@@ -121,6 +121,11 @@ async fn handle_update(bot: Bot, upd: Update, cfg: Arc<Config>) -> ResponseResul
             if !crate::is_allowed(&cfg, user_id) {
                 println!("❌ Пользователь {} не авторизован для callback", q.from.id.0);
                 log::warn!("Неавторизованный callback от пользователя: {}", q.from.id.0);
+                
+                // Все равно отвечаем на callback query, чтобы убрать индикатор загрузки
+                if let Err(e) = crate::safe_answer_callback_query(&bot, &q.id).await {
+                    log::error!("Не удалось ответить на неавторизованный callback: {}", e);
+                }
                 return Ok(());
             }
             
@@ -131,27 +136,61 @@ async fn handle_update(bot: Bot, upd: Update, cfg: Arc<Config>) -> ResponseResul
                 let result = match data {
                     "wol" => {
                         println!("🔌 Запуск WOL handler");
-                        crate::handle_wol(&bot, &q, &cfg).await
+                        handle_callback_with_error_logging(
+                            "WOL",
+                            crate::handle_wol(&bot, &q, &cfg).await
+                        )
                     },
                     "shutdown_confirm" => {
                         println!("🔴 Запуск shutdown confirm handler");
-                        crate::ask_shutdown_confirm(&bot, &q).await
+                        handle_callback_with_error_logging(
+                            "Shutdown Confirm",
+                            crate::ask_shutdown_confirm(&bot, &q).await
+                        )
                     },
                     "shutdown_yes" => {
                         println!("💀 Запуск shutdown handler");
-                        crate::handle_shutdown(&bot, &q, &cfg).await
+                        handle_callback_with_error_logging(
+                            "Shutdown Execute",
+                            crate::handle_shutdown(&bot, &q, &cfg).await
+                        )
                     },
                     "status" => {
                         println!("🟢 Запуск status handler");
-                        crate::handle_status(&bot, &q, &cfg).await
+                        handle_callback_with_error_logging(
+                            "Status Check",
+                            crate::handle_status(&bot, &q, &cfg).await
+                        )
                     },
                     "cancel" => {
                         println!("❌ Запуск cancel handler");
-                        crate::cancel(&bot, &q).await
+                        handle_callback_with_error_logging(
+                            "Cancel",
+                            crate::cancel(&bot, &q).await
+                        )
                     },
                     _ => {
                         println!("⚠️ Неизвестный callback data: '{}'", data);
                         log::warn!("Неизвестный callback data: '{}'", data);
+                        
+                        // Отвечаем на неизвестный callback query
+                        if let Err(e) = crate::safe_answer_callback_query(&bot, &q.id).await {
+                            log::error!("Не удалось ответить на неизвестный callback: {}", e);
+                        }
+                        
+                        // Показываем пользователю сообщение об ошибке
+                        if let Some(msg) = &q.message {
+                            if let Err(e) = bot.edit_message_text(
+                                msg.chat.id,
+                                msg.id,
+                                "❌ Неизвестная команда. Используйте /start для возврата в главное меню."
+                            )
+                            .reply_markup(crate::main_keyboard())
+                            .await {
+                                log::error!("Не удалось отправить сообщение об ошибке неизвестной команды: {}", e);
+                            }
+                        }
+                        
                         Ok(())
                     },
                 };
@@ -164,11 +203,29 @@ async fn handle_update(bot: Bot, upd: Update, cfg: Arc<Config>) -> ResponseResul
                     Err(e) => {
                         println!("❌ Ошибка в callback handler '{}': {}", data, e);
                         log::error!("Callback handler error for {}: {}", data, e);
+                        
+                        // Пытаемся уведомить пользователя о проблеме
+                        if let Some(msg) = &q.message {
+                            if let Err(edit_err) = bot.edit_message_text(
+                                msg.chat.id,
+                                msg.id,
+                                "❌ Произошла ошибка при выполнении команды.\nПопробуйте позже или обратитесь к администратору."
+                            )
+                            .reply_markup(crate::main_keyboard())
+                            .await {
+                                log::error!("Не удалось отправить сообщение об общей ошибке: {}", edit_err);
+                            }
+                        }
                     }
                 }
             } else {
                 println!("⚠️ Callback query без data");
                 log::warn!("Получен callback query без data");
+                
+                // Отвечаем на callback query без data
+                if let Err(e) = crate::safe_answer_callback_query(&bot, &q.id).await {
+                    log::error!("Не удалось ответить на callback без data: {}", e);
+                }
             }
         }
         _ => {
@@ -178,4 +235,33 @@ async fn handle_update(bot: Bot, upd: Update, cfg: Arc<Config>) -> ResponseResul
     }
     
     Ok(())
+}
+
+// Вспомогательная функция для обработки callback handlers с улучшенным логированием
+fn handle_callback_with_error_logging(
+    handler_name: &str,
+    result: Result<(), anyhow::Error>
+) -> Result<(), anyhow::Error> {
+    match result {
+        Ok(_) => {
+            log::debug!("{} handler выполнен успешно", handler_name);
+            Ok(())
+        },
+        Err(e) => {
+            log::error!("{} handler завершился с ошибкой: {:?}", handler_name, e);
+            
+            // Проверяем тип ошибки для более детального логирования
+            if let Some(ssh_err) = e.downcast_ref::<ssh2::Error>() {
+                log::error!("SSH ошибка в {}: код={:?}, сообщение={}", 
+                    handler_name, ssh_err.code(), ssh_err.message());
+            } else if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+                log::error!("IO ошибка в {}: тип={:?}, сообщение={}", 
+                    handler_name, io_err.kind(), io_err);
+            } else if let Some(teloxide_err) = e.downcast_ref::<teloxide::RequestError>() {
+                log::error!("Teloxide ошибка в {}: {}", handler_name, teloxide_err);
+            }
+            
+            Err(e)
+        }
+    }
 } 

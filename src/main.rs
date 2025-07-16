@@ -1,4 +1,4 @@
-use std::{env, net::TcpStream, path::Path, time::Duration, io::Read};
+use std::{env, net::TcpStream, path::Path, time::Duration, io::Read, collections::HashMap, sync::Mutex};
 
 use anyhow::{Result};
 use ssh2::Session;
@@ -11,8 +11,13 @@ use std::sync::Arc;
 
 mod handler;
 
-// #[cfg(test)]
-// mod tests;
+// Добавляем глобальное состояние для предотвращения спама кнопок
+lazy_static::lazy_static! {
+    static ref BUTTON_LOCKS: Arc<Mutex<HashMap<u64, std::time::Instant>>> = Arc::new(Mutex::new(HashMap::new()));
+}
+
+#[cfg(test)]
+mod tests;
 
 #[tokio::main]
 async fn main() {
@@ -151,7 +156,12 @@ impl Config {
         println!("Читаю SERVER_MAC...");
         let server_mac = match env::var("SERVER_MAC") {
             Ok(mac) => {
-                println!("SERVER_MAC прочитан: '{}'", mac);
+                // Валидируем MAC адрес для безопасности
+                if !is_valid_mac(&mac) {
+                    println!("ОШИБКА: SERVER_MAC имеет некорректный формат: '{}'", mac);
+                    return Err(anyhow::anyhow!("SERVER_MAC имеет некорректный формат"));
+                }
+                println!("SERVER_MAC прочитан и валиден: '{}'", mac);
                 mac
             },
             Err(e) => {
@@ -194,16 +204,37 @@ impl Config {
                 env::var("SSH_TIMEOUT")
                     .ok()
                     .and_then(|s| s.parse().ok())
-                    .unwrap_or(10),
+                    .unwrap_or(15), // Увеличиваем таймаут
             ),
             nc_timeout: Duration::from_secs(
                 env::var("NC_TIMEOUT")
                     .ok()
                     .and_then(|s| s.parse().ok())
-                    .unwrap_or(3),
+                    .unwrap_or(5), // Увеличиваем таймаут
             ),
         })
     }
+}
+
+// Функция валидации MAC адреса для безопасности
+fn is_valid_mac(mac: &str) -> bool {
+    let mac_regex = regex::Regex::new(r"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$").unwrap();
+    mac_regex.is_match(mac)
+}
+
+// Функция проверки дебаунсинга кнопок
+fn check_button_debounce(user_id: u64) -> bool {
+    let mut locks = BUTTON_LOCKS.lock().unwrap();
+    let now = std::time::Instant::now();
+    
+    if let Some(last_press) = locks.get(&user_id) {
+        if now.duration_since(*last_press) < Duration::from_secs(2) {
+            return false; // Слишком быстро нажимает
+        }
+    }
+    
+    locks.insert(user_id, now);
+    true
 }
 
 // --------------------------------------------------
@@ -255,14 +286,68 @@ fn main_keyboard() -> InlineKeyboardMarkup {
     ])
 }
 
-async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
-    println!("🔌 WOL Handler: Начало обработки");
-    log::info!("Обрабатываем WOL запрос от пользователя {}", q.from.id.0);
+// Централизованная функция установления SSH соединения
+fn establish_ssh_connection(
+    host: &str,
+    port: u16,
+    user: &str,
+    key_path: &str,
+    timeout: Duration,
+) -> Result<Session> {
+    log::info!("Устанавливаем SSH соединение с {}:{}", host, port);
     
-    // КРИТИЧЕСКИ ВАЖНО: отвечаем на callback query
-    println!("🔌 WOL Handler: Отвечаем на callback query");
-    bot.answer_callback_query(&q.id).await?;
-    println!("✅ WOL Handler: Callback query отвечен");
+    let tcp = TcpStream::connect_timeout(
+        &format!("{}:{}", host, port).parse()?,
+        timeout,
+    )?;
+
+    let mut sess = Session::new()?;
+    sess.set_tcp_stream(tcp);
+    sess.handshake()?;
+    
+    sess.userauth_pubkey_file(user, None, Path::new(key_path), None)?;
+
+    if !sess.authenticated() {
+        log::error!("SSH аутентификация не удалась для {}@{}:{}", user, host, port);
+        anyhow::bail!("SSH аутентификация не удалась");
+    }
+    
+    log::info!("SSH соединение установлено успешно");
+    Ok(sess)
+}
+
+// Улучшенная обработка callback query с защитой от ошибок
+async fn safe_answer_callback_query(bot: &Bot, callback_id: &str) -> Result<()> {
+    match bot.answer_callback_query(callback_id).await {
+        Ok(_) => {
+            log::debug!("Callback query отвечен успешно");
+            Ok(())
+        },
+        Err(e) => {
+            log::warn!("Не удалось ответить на callback query: {}", e);
+            // Не возвращаем ошибку, т.к. это не критично
+            Ok(())
+        }
+    }
+}
+
+async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
+    let user_id = q.from.id.0;
+    println!("🔌 WOL Handler: Начало обработки для пользователя {}", user_id);
+    log::info!("Обрабатываем WOL запрос от пользователя {}", user_id);
+    
+    // Проверяем дебаунсинг
+    if !check_button_debounce(user_id) {
+        log::warn!("Пользователь {} нажимает кнопки слишком быстро", user_id);
+        safe_answer_callback_query(bot, &q.id).await?;
+        if let Some(msg) = &q.message {
+            bot.edit_message_text(msg.chat.id, msg.id, "⏳ Пожалуйста, подождите перед повторным нажатием")
+                .await?;
+        }
+        return Ok(());
+    }
+    
+    safe_answer_callback_query(bot, &q.id).await?;
     
     if let Some(msg) = &q.message {
         bot.edit_message_text(msg.chat.id, msg.id, "⏳ Отправляю команду на включение...")
@@ -277,17 +362,25 @@ async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()>
     {
         Ok(_) => {
             if let Some(msg) = &q.message {
-                        bot.edit_message_text(
-            msg.chat.id,
-            msg.id,
+                bot.edit_message_text(
+                    msg.chat.id,
+                    msg.id,
                     "🔌 Magic packet отправлен!\n\nСервер должен запуститься в течение 30 секунд.",
                 )
+                .reply_markup(main_keyboard())
                 .await?;
             }
         }
         Err(e) => {
+            log::error!("Ошибка WOL: {}", e);
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat.id, msg.id, format!("❌ Ошибка: {}", e)).await?;
+                bot.edit_message_text(
+                    msg.chat.id, 
+                    msg.id, 
+                    "❌ Не удалось отправить команду включения.\nПроверьте настройки сети."
+                )
+                .reply_markup(main_keyboard())
+                .await?;
             }
         }
     }
@@ -296,39 +389,40 @@ async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()>
 }
 
 fn send_wol(config: &Config) -> Result<()> {
-    let tcp = TcpStream::connect_timeout(
-        &format!("{}:{}", config.router_ssh_host, config.router_ssh_port).parse()?,
+    let sess = establish_ssh_connection(
+        &config.router_ssh_host,
+        config.router_ssh_port,
+        &config.router_ssh_user,
+        &config.router_ssh_key,
         config.ssh_timeout,
     )?;
 
-    let mut sess = Session::new()?;
-    sess.set_tcp_stream(tcp);
-    sess.handshake()?;
-    sess.userauth_pubkey_file(
-        &config.router_ssh_user,
-        None,
-        Path::new(&config.router_ssh_key),
-        None,
-    )?;
-
-    if !sess.authenticated() {
-        anyhow::bail!("SSH authentication failed");
-    }
-
     let mut ch = sess.channel_session()?;
-    ch.exec(&format!("etherwake -i br-lan {}", config.server_mac))?;
+    
+    // Используем безопасное форматирование команды
+    let safe_mac = config.server_mac.replace(|c: char| !c.is_ascii_hexdigit() && c != ':' && c != '-', "");
+    let command = format!("etherwake -i br-lan {}", safe_mac);
+    
+    log::info!("Выполняем WOL команду: {}", command);
+    ch.exec(&command)?;
     ch.close()?;
+    
     Ok(())
 }
 
 async fn ask_shutdown_confirm(bot: &Bot, q: &CallbackQuery) -> Result<()> {
-    println!("🔴 Shutdown Confirm Handler: Начало обработки");
-    log::info!("Запрос подтверждения выключения от пользователя {}", q.from.id.0);
+    let user_id = q.from.id.0;
+    println!("🔴 Shutdown Confirm Handler: Начало обработки для пользователя {}", user_id);
+    log::info!("Запрос подтверждения выключения от пользователя {}", user_id);
     
-    // КРИТИЧЕСКИ ВАЖНО: отвечаем на callback query
-    println!("🔴 Shutdown Confirm Handler: Отвечаем на callback query");
-    bot.answer_callback_query(&q.id).await?;
-    println!("✅ Shutdown Confirm Handler: Callback query отвечен");
+    // Проверяем дебаунсинг
+    if !check_button_debounce(user_id) {
+        log::warn!("Пользователь {} нажимает кнопки слишком быстро", user_id);
+        safe_answer_callback_query(bot, &q.id).await?;
+        return Ok(());
+    }
+    
+    safe_answer_callback_query(bot, &q.id).await?;
     
     if let Some(msg) = &q.message {
         let kb = InlineKeyboardMarkup::new(vec![vec![
@@ -344,13 +438,20 @@ async fn ask_shutdown_confirm(bot: &Bot, q: &CallbackQuery) -> Result<()> {
 }
 
 async fn handle_shutdown(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
-    log::info!("Обрабатываем запрос выключения от пользователя {}", q.from.id.0);
+    let user_id = q.from.id.0;
+    log::info!("Обрабатываем запрос выключения от пользователя {}", user_id);
     
-    // КРИТИЧЕСКИ ВАЖНО: отвечаем на callback query
-    bot.answer_callback_query(&q.id).await?;
+    // Проверяем дебаунсинг
+    if !check_button_debounce(user_id) {
+        log::warn!("Пользователь {} нажимает кнопки слишком быстро", user_id);
+        safe_answer_callback_query(bot, &q.id).await?;
+        return Ok(());
+    }
+    
+    safe_answer_callback_query(bot, &q.id).await?;
     
     if let Some(msg) = &q.message {
-                    bot.edit_message_text(msg.chat.id, msg.id, "⏳ Отправляю команду на выключение...")
+        bot.edit_message_text(msg.chat.id, msg.id, "⏳ Отправляю команду на выключение...")
             .await?;
     }
 
@@ -362,12 +463,25 @@ async fn handle_shutdown(bot: &Bot, q: &CallbackQuery, config: &Config) -> Resul
     {
         Ok(_) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat.id, msg.id, "🔴 Команда выключения отправлена!").await?;
+                bot.edit_message_text(
+                    msg.chat.id, 
+                    msg.id, 
+                    "🔴 Команда выключения отправлена!"
+                )
+                .reply_markup(main_keyboard())
+                .await?;
             }
         }
         Err(e) => {
+            log::error!("Ошибка выключения: {}", e);
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat.id, msg.id, format!("❌ Ошибка: {}", e)).await?;
+                bot.edit_message_text(
+                    msg.chat.id, 
+                    msg.id, 
+                    "❌ Не удалось отправить команду выключения.\nПроверьте настройки SSH."
+                )
+                .reply_markup(main_keyboard())
+                .await?;
             }
         }
     }
@@ -375,59 +489,71 @@ async fn handle_shutdown(bot: &Bot, q: &CallbackQuery, config: &Config) -> Resul
 }
 
 fn send_shutdown(config: &Config) -> Result<()> {
-    let tcp = TcpStream::connect_timeout(
-        &format!("{}:{}", config.server_ssh_host, config.server_ssh_port).parse()?,
+    let sess = establish_ssh_connection(
+        &config.server_ssh_host,
+        config.server_ssh_port,
+        &config.server_ssh_user,
+        &config.server_ssh_key,
         config.ssh_timeout,
     )?;
 
-    let mut sess = Session::new()?;
-    sess.set_tcp_stream(tcp);
-    sess.handshake()?;
-    sess.userauth_pubkey_file(
-        &config.server_ssh_user,
-        None,
-        Path::new(&config.server_ssh_key),
-        None,
-    )?;
-
-    if !sess.authenticated() {
-        anyhow::bail!("SSH authentication failed");
-    }
-
     let mut ch = sess.channel_session()?;
+    
+    log::info!("Выполняем команду выключения");
     ch.exec("sudo /sbin/shutdown -h now")?;
     ch.close()?;
+    
     Ok(())
 }
 
 async fn handle_status(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()> {
-    println!("🟢 Status Handler: Начало обработки");
-    log::info!("Проверяем статус сервера по запросу пользователя {}", q.from.id.0);
+    let user_id = q.from.id.0;
+    println!("🟢 Status Handler: Начало обработки для пользователя {}", user_id);
+    log::info!("Проверяем статус сервера по запросу пользователя {}", user_id);
     
-    // КРИТИЧЕСКИ ВАЖНО: отвечаем на callback query
-    println!("🟢 Status Handler: Отвечаем на callback query");
-    bot.answer_callback_query(&q.id).await?;
-    println!("✅ Status Handler: Callback query отвечен");
+    // Проверяем дебаунсинг
+    if !check_button_debounce(user_id) {
+        log::warn!("Пользователь {} нажимает кнопки слишком быстро", user_id);
+        safe_answer_callback_query(bot, &q.id).await?;
+        return Ok(());
+    }
+    
+    safe_answer_callback_query(bot, &q.id).await?;
     
     if let Some(msg) = &q.message {
-                    bot.edit_message_text(msg.chat.id, msg.id, "⏳ Проверяю статус сервера...")
+        bot.edit_message_text(msg.chat.id, msg.id, "⏳ Проверяю статус сервера...")
             .await?;
     }
 
     match tokio::time::timeout(config.nc_timeout, check_status(config.clone())).await {
         Ok(Ok(info)) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat.id, msg.id, info).await?;
+                bot.edit_message_text(msg.chat.id, msg.id, info)
+                    .reply_markup(main_keyboard())
+                    .await?;
             }
         }
         Ok(Err(e)) => {
+            log::error!("Ошибка проверки статуса: {}", e);
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat.id, msg.id, format!("❌ Ошибка: {}", e)).await?;
+                bot.edit_message_text(
+                    msg.chat.id, 
+                    msg.id, 
+                    "❌ Не удалось проверить статус сервера.\nПроверьте настройки SSH."
+                )
+                .reply_markup(main_keyboard())
+                .await?;
             }
         }
         Err(_) => {
             if let Some(msg) = &q.message {
-                bot.edit_message_text(msg.chat.id, msg.id, "⏱️ Таймаут!").await?;
+                bot.edit_message_text(
+                    msg.chat.id, 
+                    msg.id, 
+                    "⏱️ Таймаут проверки статуса!"
+                )
+                .reply_markup(main_keyboard())
+                .await?;
             }
         }
     }
@@ -441,19 +567,14 @@ async fn check_status(config: Config) -> Result<String> {
         Ok(_) => {
             // Пробуем более детально получить uptime
             match tokio::task::spawn_blocking(move || {
-                let tcp = TcpStream::connect(addr)?;
-                let mut sess = Session::new()?;
-                sess.set_tcp_stream(tcp);
-                sess.handshake()?;
-                sess.userauth_pubkey_file(
+                let sess = establish_ssh_connection(
+                    &config.server_ssh_host,
+                    config.server_ssh_port,
                     &config.server_ssh_user,
-                    None,
-                    Path::new(&config.server_ssh_key),
-                    None,
+                    &config.server_ssh_key,
+                    config.ssh_timeout,
                 )?;
-                if !sess.authenticated() {
-                    anyhow::bail!("SSH auth failed");
-                }
+                
                 let mut ch = sess.channel_session()?;
                 ch.exec("uptime")?;
                 let mut s = String::new();
@@ -464,7 +585,11 @@ async fn check_status(config: Config) -> Result<String> {
             .await
             {
                 Ok(Ok(s)) => Ok(s),
-                _ => Ok("🟢 Сервер онлайн\n\nSSH-туннель активен.".into()),
+                Ok(Err(e)) => {
+                    log::warn!("Не удалось получить uptime: {}", e);
+                    Ok("🟢 Сервер онлайн\n\nSSH-туннель активен.".into())
+                },
+                Err(_) => Ok("🟢 Сервер онлайн\n\nSSH-туннель активен.".into()),
             }
         }
         Err(_) => Ok("🔴 Сервер оффлайн\n\nSSH-туннель не отвечает.".into()),
@@ -474,8 +599,7 @@ async fn check_status(config: Config) -> Result<String> {
 async fn cancel(bot: &Bot, q: &CallbackQuery) -> Result<()> {
     log::info!("Отмена операции пользователем {}", q.from.id.0);
     
-    // КРИТИЧЕСКИ ВАЖНО: отвечаем на callback query
-    bot.answer_callback_query(&q.id).await?;
+    safe_answer_callback_query(bot, &q.id).await?;
     
     if let Some(msg) = &q.message {
         bot.edit_message_text(msg.chat.id, msg.id, "❌ Операция отменена")

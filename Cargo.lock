@@ -1862,9 +1862,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "lazy_static",
  "log",
  "mockall",
  "pretty_env_logger",
+ "regex",
  "serde_json",
  "ssh2",
  "teloxide",
