@@ -10,8 +10,7 @@ pub async fn run(bot: Bot, cfg: Arc<Config>) {
         .filter(|upd: Update, cfg: Arc<Config>| crate::is_allowed(&cfg, &upd))
         // --- Команды ---
         .branch(
-            Update::filter_message()
-                .filter_command::<Command>()
+            teloxide::filter_command::<Command, _>()
                 .endpoint(|cfg: Arc<Config>, bot: Bot, msg: Message, cmd: Command| async move {
                     crate::command_handler(cfg, bot, msg, cmd).await
                 }),
