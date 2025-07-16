@@ -4,6 +4,15 @@ use teloxide::dispatching::UpdateFilterExt;
 
 use crate::{Config, Command};
 
+// Проброс к функциям, определённым в crate:: (main.rs)
+async fn command_bridge(cfg: Arc<Config>, bot: Bot, msg: Message, cmd: Command) -> teloxide::prelude::ResponseResult<()> {
+    crate::command_handler(cfg, bot, msg, cmd).await
+}
+
+async fn callback_bridge(cfg: Arc<Config>, bot: Bot, q: CallbackQuery) -> teloxide::prelude::ResponseResult<()> {
+    crate::callback_handler(cfg, bot, q).await
+}
+
 pub async fn run(bot: Bot, cfg: Arc<Config>) {
     let handler = dptree::entry()
         // Фильтрация по разрешённым пользователям
@@ -11,16 +20,12 @@ pub async fn run(bot: Bot, cfg: Arc<Config>) {
         // --- Команды ---
         .branch(
             teloxide::filter_command::<Command, _>()
-                .endpoint(|cfg: Arc<Config>, bot: Bot, msg: Message, cmd: Command| async move {
-                    crate::command_handler(cfg, bot, msg, cmd).await
-                }),
+                .endpoint(command_bridge),
         )
         // --- CallbackQuery ---
         .branch(
             Update::filter_callback_query()
-                .endpoint(|cfg: Arc<Config>, bot: Bot, q: CallbackQuery| async move {
-                    crate::callback_handler(cfg, bot, q).await
-                }),
+                .endpoint(callback_bridge),
         );
 
     Dispatcher::builder(bot.clone(), handler)
