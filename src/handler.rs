@@ -18,9 +18,23 @@ pub async fn run(bot: Bot, cfg: Arc<Config>) {
     }
     
     println!("Создаем listener для polling...");
-    let listener = teloxide::update_listeners::polling_default(bot.clone()).await;
-    log::info!("Polling listener создан");
-    println!("Polling listener создан успешно");
+    
+    // Настраиваем polling с явным указанием типов обновлений
+    use teloxide::types::AllowedUpdate;
+    use teloxide::update_listeners::Polling;
+    let allowed_updates = vec![
+        AllowedUpdate::Message,
+        AllowedUpdate::CallbackQuery,
+    ];
+    
+    let listener = Polling::builder(bot.clone())
+        .timeout(std::time::Duration::from_secs(10))
+        .limit(100)
+        .allowed_updates(allowed_updates)
+        .build();
+    
+    log::info!("Polling listener создан с поддержкой Message и CallbackQuery");
+    println!("Polling listener создан успешно с поддержкой кнопок");
     
     // Настройки для более стабильного polling
     println!("Настраиваем параметры polling...");
