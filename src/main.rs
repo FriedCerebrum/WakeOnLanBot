@@ -8,6 +8,7 @@ use teloxide::{
     types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
     utils::command::BotCommands,
 };
+use teloxide::dptree::{endpoint, deps};
 use teloxide::prelude::ResponseResult;
 use std::sync::Arc;
 
@@ -37,12 +38,15 @@ async fn run() -> Result<()> {
         .branch(
             Update::filter_message()
                 .filter_command::<Command>()
-                .endpoint(command_handler),
+                .endpoint(endpoint!(command_handler)),
         )
-        .branch(Update::filter_callback_query().endpoint(callback_handler));
+        .branch(
+            Update::filter_callback_query()
+                .endpoint(endpoint!(callback_handler)),
+        );
 
     Dispatcher::builder(bot.clone(), handler)
-        .dependencies(dptree::deps![cfg])
+        .dependencies(deps![cfg])
         .enable_ctrlc_handler()
         .build()
         .dispatch()
