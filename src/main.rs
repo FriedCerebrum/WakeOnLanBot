@@ -4,7 +4,7 @@ use anyhow::{Result};
 use ssh2::Session;
 use teloxide::{
     prelude::*,
-    types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode, CallbackQuery},
     utils::command::BotCommands,
 };
 use std::sync::Arc;
