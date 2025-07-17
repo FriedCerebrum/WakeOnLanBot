@@ -296,8 +296,18 @@ fn establish_ssh_connection(
 ) -> Result<Session> {
     log::info!("Устанавливаем SSH соединение с {}:{}", host, port);
     
+    // Преобразуем localhost в 127.0.0.1 для корректного парсинга
+    let resolved_host = if host == "localhost" {
+        "127.0.0.1"
+    } else {
+        host
+    };
+    
+    let addr = format!("{}:{}", resolved_host, port);
+    log::debug!("Подключаемся к адресу: {}", addr);
+    
     let tcp = TcpStream::connect_timeout(
-        &format!("{}:{}", host, port).parse()?,
+        &addr.parse()?,
         timeout,
     )?;
 
@@ -562,7 +572,16 @@ async fn handle_status(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<
 }
 
 async fn check_status(config: Config) -> Result<String> {
-    let addr = format!("{}:{}", config.server_ssh_host, config.server_ssh_port);
+    // Преобразуем localhost в 127.0.0.1 для корректного соединения
+    let resolved_host = if config.server_ssh_host == "localhost" {
+        "127.0.0.1"
+    } else {
+        &config.server_ssh_host
+    };
+    
+    let addr = format!("{}:{}", resolved_host, config.server_ssh_port);
+    log::debug!("Проверяем статус по адресу: {}", addr);
+    
     match tokio::net::TcpStream::connect(addr.clone()).await {
         Ok(_) => {
             // Пробуем более детально получить uptime
