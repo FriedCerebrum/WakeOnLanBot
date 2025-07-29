@@ -346,6 +346,10 @@ async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()>
     println!("🔌 WOL Handler: Начало обработки для пользователя {}", user_id);
     log::info!("Обрабатываем WOL запрос от пользователя {}", user_id);
     
+    // Добавляем дополнительное логирование для диагностики
+    log::debug!("WOL config: router_ssh_host={}, router_ssh_port={}, server_mac={}",
+                config.router_ssh_host, config.router_ssh_port, config.server_mac);
+    
     // Проверяем дебаунсинг
     if !check_button_debounce(user_id) {
         log::warn!("Пользователь {} нажимает кнопки слишком быстро", user_id);
@@ -371,11 +375,70 @@ async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()>
     .await?
     {
         Ok(_) => {
+            // Улучшаем сообщение пользователю
             if let Some(msg) = &q.message {
                 bot.edit_message_text(
                     msg.chat.id,
                     msg.id,
-                    "🔌 Magic packet отправлен!\n\nСервер должен запуститься в течение 30 секунд.",
+                    "🔌 Magic packet отправлен!\n\nОжидаем загрузку сервера... Это может занять до 2 минут.",
+                )
+                .await?;
+            }
+            
+            // Реализуем повторные попытки проверки статуса с экспоненциальной задержкой
+            let mut delay = Duration::from_secs(10); // Начальная задержка 10 секунд
+            let max_delay = Duration::from_secs(30); // Максимальная задержка 30 секунд
+            let max_attempts = 6; // Максимум 6 попыток (около 2 минут)
+            
+            let mut server_online = false;
+            let mut last_status = String::new();
+            
+            for attempt in 1..=max_attempts {
+                log::info!("Попытка {} проверки статуса сервера после WOL", attempt);
+                
+                // Добавляем задержку перед проверкой статуса
+                tokio::time::sleep(delay).await;
+                
+                // Автоматически проверяем статус сервера после WOL
+                match tokio::time::timeout(config.nc_timeout, check_status(config.clone())).await {
+                    Ok(Ok(status_info)) => {
+                        last_status = status_info.clone();
+                        if status_info.starts_with("🟢 Сервер онлайн") {
+                            server_online = true;
+                            log::info!("Сервер включен на попытке {}", attempt);
+                            break;
+                        } else {
+                            log::info!("Сервер еще не включен на попытке {}: {}", attempt, status_info);
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        log::error!("Ошибка проверки статуса на попытке {}: {}", attempt, e);
+                        last_status = format!("Ошибка проверки статуса: {}", e);
+                    }
+                    Err(_) => {
+                        log::warn!("Таймаут проверки статуса на попытке {}", attempt);
+                        last_status = "Таймаут проверки статуса".to_string();
+                    }
+                }
+                
+                // Увеличиваем задержку для следующей попытки (экспоненциальная задержка)
+                if attempt < max_attempts {
+                    delay = std::cmp::min(delay * 2, max_delay);
+                }
+            }
+            
+            // Формируем финальное сообщение для пользователя
+            let final_message = if server_online {
+                format!("🔌 Magic packet отправлен!\n\n✅ Сервер успешно включен!\n\n{}", last_status)
+            } else {
+                format!("🔌 Magic packet отправлен!\n\n⚠️ Не удалось подтвердить включение сервера в течение 2 минут.\n\nПоследний статус: {}", last_status)
+            };
+            
+            if let Some(msg) = &q.message {
+                bot.edit_message_text(
+                    msg.chat.id,
+                    msg.id,
+                    final_message,
                 )
                 .reply_markup(main_keyboard())
                 .await?;
@@ -385,8 +448,8 @@ async fn handle_wol(bot: &Bot, q: &CallbackQuery, config: &Config) -> Result<()>
             log::error!("Ошибка WOL: {}", e);
             if let Some(msg) = &q.message {
                 bot.edit_message_text(
-                    msg.chat.id, 
-                    msg.id, 
+                    msg.chat.id,
+                    msg.id,
                     "❌ Не удалось отправить команду включения.\nПроверьте настройки сети."
                 )
                 .reply_markup(main_keyboard())
@@ -582,10 +645,16 @@ async fn check_status(config: Config) -> Result<String> {
     let addr = format!("{}:{}", resolved_host, config.server_ssh_port);
     log::debug!("Проверяем статус по адресу: {}", addr);
     
+    // Добавляем дополнительное логирование для диагностики
+    log::debug!("Status check config: server_ssh_host={}, server_ssh_port={}, ssh_timeout={:?}",
+                config.server_ssh_host, config.server_ssh_port, config.ssh_timeout);
+    
     match tokio::net::TcpStream::connect(addr.clone()).await {
         Ok(_) => {
+            log::debug!("TCP соединение с {} установлено успешно", addr);
             // Пробуем более детально получить uptime
             match tokio::task::spawn_blocking(move || {
+                log::debug!("Попытка установления SSH соединения...");
                 let sess = establish_ssh_connection(
                     &config.server_ssh_host,
                     config.server_ssh_port,
@@ -594,11 +663,13 @@ async fn check_status(config: Config) -> Result<String> {
                     config.ssh_timeout,
                 )?;
                 
+                log::debug!("SSH соединение установлено, выполняем команду uptime...");
                 let mut ch = sess.channel_session()?;
                 ch.exec("uptime")?;
                 let mut s = String::new();
                 ch.read_to_string(&mut s)?;
                 ch.close()?;
+                log::debug!("Команда uptime выполнена успешно: {}", s.trim());
                 Ok::<_, anyhow::Error>(format!("🟢 Сервер онлайн\n\n{}", s.trim()))
             })
             .await
@@ -608,10 +679,16 @@ async fn check_status(config: Config) -> Result<String> {
                     log::warn!("Не удалось получить uptime: {}", e);
                     Ok("🟢 Сервер онлайн\n\nSSH-туннель активен.".into())
                 },
-                Err(_) => Ok("🟢 Сервер онлайн\n\nSSH-туннель активен.".into()),
+                Err(e) => {
+                    log::warn!("Ошибка выполнения блокирующей задачи: {}", e);
+                    Ok("🟢 Сервер онлайн\n\nSSH-туннель активен.".into())
+                },
             }
         }
-        Err(_) => Ok("🔴 Сервер оффлайн\n\nSSH-туннель не отвечает.".into()),
+        Err(e) => {
+            log::debug!("TCP соединение с {} не удалось: {}", addr, e);
+            Ok("🔴 Сервер оффлайн\n\nSSH-туннель не отвечает.".into())
+        },
     }
 }
 
